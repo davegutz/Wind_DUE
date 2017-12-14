@@ -16,6 +16,225 @@
 
 extern int verbose;
 
+
+// class Debounce
+// constructors
+Debounce::Debounce()
+    : nz_(1) {}
+Debounce::  Debounce(const bool icValue, const int updates)
+    : nz_(fmax(updates-1, 1))
+{
+  past_ = new bool[nz_];
+  for (int i=0; i<nz_; i++) past_[i] = icValue;
+}
+Debounce::~Debounce() {}
+// operators
+// functions
+bool Debounce::calculate(const bool in)
+{
+  bool past = past_[nz_-1];
+  bool fail = false;
+  for ( int i=0; i<nz_; i++ ) if ( in!=past_[i] ) fail = true;
+  for ( int i=nz_-1; i>0; i-- ) past_[i] = past_[i-1];
+  past_[0] = in;
+  bool out = in;
+  if ( fail ) out = past;
+  return ( out );
+}
+bool Debounce::calculate(const bool in, const int RESET)
+{
+  if ( RESET ) for (int i=0; i<nz_; i++) past_[i] = in;
+  return ( Debounce::calculate(in) );
+}
+
+
+// class DetectRise
+// constructors
+DetectRise::DetectRise()
+    : past_(0) {}
+DetectRise::~DetectRise() {}
+// operators
+// functions
+bool DetectRise::calculate(const double in)
+{
+  bool out = false;
+  if ( in > past_ ) out = true;
+  past_ = in;
+  return ( out );
+}
+bool DetectRise::calculate(const bool in)
+{
+  return ( DetectRise::calculate(double(in)) ); 
+}
+bool DetectRise::calculate(const int in)
+{
+  return ( DetectRise::calculate(double(in)) ); 
+}
+
+
+// class TFDelay
+// constructors
+TFDelay::TFDelay()
+    : timer_(0), nt_(0), nf_(0), T_(1) {}
+TFDelay::TFDelay(const bool in, const double Tt, const double Tf, const double T)
+    : timer_(0), nt_(int(fmax(round(Tt/T),0))), nf_(int(fmax(round(Tf/T),0))), T_(T)
+{
+  if ( in ) timer_ = nf_;
+  else timer_ = -nt_;
+}
+TFDelay::~TFDelay() {}
+// operators
+// functions
+double TFDelay::calculate(const bool in)
+{
+  if ( timer_ >= 0 )
+  {
+    if ( in ) timer_ = nf_;
+    else
+    {
+      timer_--;
+      if ( timer_<0 ) timer_ = -nt_;
+    }
+  }
+  else
+  {
+    if ( !in ) timer_ = -nt_;
+    else
+    {
+      timer_++;
+      if ( timer_>=0 ) timer_=nf_;
+    }
+  }
+  return ( timer_>= 0 );
+}
+double TFDelay::calculate(const bool in, const int RESET)
+{
+  bool out;
+  if (RESET>0)
+  {
+      if ( in ) timer_ = nf_;
+      else timer_ = -nt_;
+      out = in;
+  }
+  else
+  {
+    out = TFDelay::calculate(in);
+  }
+  return ( out );
+}
+double TFDelay::calculate(const bool in, const double Tt, const double Tf)
+{
+  nt_ = int(fmax(round(Tt/T_),0));
+  nf_ = int(fmax(round(Tf/T_),0));
+  return(TFDelay::calculate(in));
+}
+double TFDelay::calculate(const bool in, const double Tt, const double Tf, const int RESET)
+{
+  if (RESET>0)
+  {
+    if ( in ) timer_ = nf_;
+    else timer_ = -nt_;
+  }
+  return(TFDelay::calculate(in, Tt, Tf));
+}
+
+
+
+// class SRLatch
+// constructors
+SRLatch::SRLatch()
+    : state_(false) {}
+SRLatch::SRLatch(const bool icValue)
+    : state_(icValue){}
+SRLatch::~SRLatch() {}
+// operators
+// functions
+bool SRLatch::calculate(const bool S, const bool R)
+{
+  if ( R ) state_ = false;   // Reset overrides Set
+  else if ( S ) state_ = true;
+  return (state_);
+}
+
+
+// class Delay
+// constructors
+Delay::Delay()
+    : nz_(0) {}
+Delay::Delay(const double in, const int nz)
+    : nz_(fmax(nz, 1))
+{
+  past_ = new double[nz_];
+  for ( int i=0; i<nz_; i++ ) past_[i] = in;
+}
+Delay::~Delay() {}
+// operators
+// functions
+double Delay::calculate(const double in)
+{
+  double out = past_[nz_-1];
+  for (int i=nz_-1; i>0; i--) past_[i] = past_[i-1];
+  past_[0] = in;
+  return (out);
+}
+double Delay::calculate(const double in, const int RESET)
+{
+  if (RESET>0)
+  {
+      for (int i=0; i<nz_; i++) past_[i] = in;
+      return(in);
+  }
+  else
+  {
+    return(Delay::calculate(in));
+  }
+}
+
+
+// class RateLimit
+// constructors
+RateLimit::RateLimit()
+    : past_(0), jmax_(0), jmin_(0), T_(1) {}
+RateLimit::RateLimit(const double I, const double T)
+    : past_(I), jmax_(0), jmin_(0), T_(T) {}
+RateLimit::RateLimit(const double I, const double T, const double Rmax, const double Rmin)
+    : past_(I), jmax_(fabs(Rmax*T)), jmin_(-fabs(Rmin*T)), T_(T) {}
+RateLimit::~RateLimit() {}
+// operators
+// functions
+double RateLimit::calculate(const double in)
+{
+  double out = fmax( fmin( in, past_+jmax_), past_+jmin_);
+  past_ = in;
+  return (out);
+}
+double RateLimit::calculate(const double in, const int RESET)
+{
+  if (RESET>0)
+  {
+    past_ = in;
+  }
+  double out = RateLimit::calculate(in);
+  return(out);
+}
+double RateLimit::calculate(const double in, const double Rmax, const double Rmin)
+{
+  jmax_ = fabs(Rmax*T_);
+  jmin_ = -fabs(Rmin*T_);
+  double out = RateLimit::calculate(in);
+  return(out);
+}
+double RateLimit::calculate(const double in, const double Rmax, const double Rmin, const int RESET)
+{
+  if (RESET>0)
+  {
+    past_ = in;
+  }
+  double out = RateLimit::calculate(in, Rmax, Rmin);
+  return(out);
+}
+
+
 // class DiscreteFilter
 // constructors
 DiscreteFilter::DiscreteFilter()

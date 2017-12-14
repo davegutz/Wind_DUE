@@ -41,7 +41,7 @@ SYSTEM_THREAD(ENABLED); // Make sure code always run regardless of network statu
 // in myClaw.h  #define KIT   1   // -1=Photon, 0-4 = Arduino
 #define TTYPE 0          // 0=STEP, 1=FREQ, 2=VECT, 3=RAMP (ramp is open loop only), 4=RAND
 //#define CALIBRATING         // Use this to port converted v4 to the vpot serial signal for calibration
-int     verbose = 2;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
+int     verbose = 0;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "b"
 bool    test = false;    // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
@@ -98,9 +98,13 @@ Connections for Photon:
 
 
 Connections for Arduino:
+  POW ------------------- Arduino
+    POS/PLUS -------------- Digital out D3
+    other ----------------- GND
   ESC ------------------- Arduino
     BLK ------------------- GND
     WHT ------------------- PWM Output (5)
+    RED ------------------- Digital in D6
   ESC----------------- 3-wire DC Servomotor
     Any three to any three
   F2V-----------------Arduino
@@ -175,6 +179,8 @@ Connections for Arduino:
 // Constants always defined
 // #define CONSTANT
 #ifdef ARDUINO
+#define POWER_IN_PIN 6                                          // Read level of power on/off (D6)
+#define POWER_EN_PIN 3                                          // Write power enable discrete (D3)
 #define BUTTON_PIN 2                                           // Button 3-way input momentary 3.3V, steady GND (D2)
 #define PWM_PIN 5                                              // PWM output (PD5)
 #define POT_PIN A0                                             // Potentiometer input pin on Arduino (PC0)
@@ -203,12 +209,13 @@ const double POT_SCL = (3.3 - POT_BIA) / POT_MAX; // Pot scalar, vdc
 #endif
 //********constants for all*******************
 #ifdef CALIBRATING
-#define PUBLISH_DELAY 150000UL // Time between cloud updates (), micros
+#define PUBLISH_DELAY 150000UL      // Time between cloud updates (), micros
 #else
-#define PUBLISH_DELAY 15000UL // Time between cloud updates (), micros
+#define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
 #endif
-#define CONTROL_DELAY 15000UL // Control law wait (), micros
-#define RAND_DELAY 1500000UL // Control law wait (), micros
+#define CONTROL_DELAY    15000UL    // Control law wait (), micros
+#define CONTROL10_DELAY  150000UL   // Control law wait (), micros
+#define CONTROL100_DELAY 1500000UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
 const double POT_MIN = 0;     // Minimum POT value, vdc
@@ -237,6 +244,7 @@ LagTustin *throttleFilter; // Tustin lag noise filter
 FRAnalyzer *analyzer;      // Frequency response analyzer
 Servo myservo;             // create servo object to control dc motor
 ControlLaw *CLAW;          // Control Law
+Debounce *ClPinDebounce;   // Input switch status
 
 //#ifndef ARDUINO
 #ifdef TALK
@@ -293,6 +301,8 @@ void setup()
 #ifndef ARDUINO
   WiFi.disconnect();
 #endif
+  pinMode(POWER_IN_PIN, INPUT);
+  pinMode(POWER_EN_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT);
   Serial.begin(115200);
   myservo.attach(PWM_PIN, 1000, 2000); // attaches the servo.  Only supported on pins that have PWM
@@ -312,6 +322,7 @@ void setup()
 #endif
 
   myservo.write(throttle);
+  digitalWrite(POWER_EN_PIN, HIGH);
 
 // Serial headers used by plotting programs
 // Header for analyzer.  TODO:  should be done in analyzer.cpp so done when needed
@@ -342,6 +353,7 @@ void setup()
 
   // Instatiate gain scheduling tables
   CLAW = new ControlLaw(T, DENS_SI);
+  ClPinDebounce = new Debounce((digitalRead(CL_PIN) == HIGH), 3);
 
 #ifdef ARDUINO
   delay(100);
@@ -355,13 +367,16 @@ void setup()
 void loop()
 {
   static bool vectoring = false;            // Perform vector test status
+  int powerState = 0;                     // Monitor ESC power
+  static bool powerEnable = true;         // Turn on the ESC POW module
   int buttonState = 0;                    // Pushbutton
   static bool closingLoop = false;        // Persisted closing loop by pin cmd, T/F
-  static bool closingLoopLast = false;    // Last closing loop by pin cmd, T/F
-  static bool closingLoopPast = false;   // Past closing loop by pin cmd, T/F
+  //static bool closingLoopLast = false;    // Last closing loop by pin cmd, T/F
+  //static bool closingLoopPast = false;   // Past closing loop by pin cmd, T/F
   static bool stepping = false;           // Step by Photon send String
-  bool control;                           // Control sequence, T/F
-  bool randomizer;                        // Random sequence, T/F
+  bool control;                           // Control frame, T/F
+  bool control10;                         // Control 10T frame, T/F
+  bool control100;                        // Control 100T frame, T/F
   bool publish;                           // Publish, T/F
   static bool analyzing;                         // Begin analyzing, T/F
   unsigned long now = micros();           // Keep track of time
@@ -370,7 +385,8 @@ void loop()
   static double updateTime = 0.0;         // Control law update time, sec
   static unsigned long lastControl = 0UL; // Last control law time, micros
   static unsigned long lastPublish = 0UL; // Last publish time, micros
-  static unsigned long lastRand = 0UL;    // Last publish time, micros
+  static unsigned long lastControl10 = 0UL;    // Last control 10T time, micros
+  static unsigned long lastControl100 = 0UL;    // Last control 100T time, micros
 #ifdef ARDUINO
   static unsigned long lastButton = 0UL;  // Last button push time, micros
   static unsigned long lastFR = 0UL;      // Last analyzing, micros
@@ -401,23 +417,24 @@ void loop()
   {
     updateTime = float(deltaTick) / 1000000.0;
     lastControl = now;
-    unsigned long deltaRand = now - lastRand;
-    randomizer = (deltaRand >= RAND_DELAY - CLOCK_TCK / 2);
-    if (randomizer)
+    unsigned long deltaTick10 = now - lastControl10;
+    control10 = (deltaTick10 >= CONTROL10_DELAY - CLOCK_TCK / 2);
+    if (control10)
     {
-      lastRand = now;
+      lastControl10 = now;
+    }
+    unsigned long deltaTick100 = now - lastControl100;
+    control100 = (deltaTick100 >= CONTROL100_DELAY - CLOCK_TCK / 2);
+    if (control100)
+    {
+      lastControl100 = now;
     }
   }
-  if (bare)
-  {
-#ifdef ARDUINO
-    closingLoop = true;
-#endif
-  }
-  else
+  if (!bare)
   {
     if ( control ) // Debounce three updates
     {
+      /*
       bool closingLoopSwitch = (digitalRead(CL_PIN) == HIGH);
       if (!closingLoop)
         closingLoop = closingLoopLast && closingLoopPast && closingLoopSwitch;
@@ -425,8 +442,11 @@ void loop()
         closingLoop = !(!closingLoopLast && !closingLoopPast && !closingLoopSwitch);
       closingLoopPast = closingLoopLast;
       closingLoopLast = closingLoopSwitch;
+      */
+      closingLoop = ClPinDebounce->calculate(digitalRead(CL_PIN) == HIGH);
     }
   }
+  powerState  = digitalRead(POWER_IN_PIN);
   buttonState = digitalRead(BUTTON_PIN);
 #ifdef ARDUINO
   if (buttonState == HIGH && (now - lastButton > 200000UL))
@@ -486,7 +506,7 @@ void loop()
   if ( vectoring )
     analyzing = !Rcomplete();
 #elif TTYPE==4 // RAND
-  if ( randomizer && vectoring  )
+  if ( control100 && vectoring  )
     analyzing = !RandComplete();
 #endif
   else
@@ -497,8 +517,90 @@ void loop()
 //#ifndef ARDUINO
 #ifdef TALK
   // Serial event  (terminate Send String data with 0A using CoolTerm)
+  double Si, Sp, Sd;
+  double Ai, Ap, Ad;
   if (stringComplete)
   {
+    switch ( inputString.charAt(0) )
+    {
+      case ( 'S' ):
+        switch ( inputString.charAt(1) )
+        {
+          case ( 'i' ):
+            Si = inputString.substring(2).toFloat();
+            break;
+          case ( 'p' ):
+            Sp = inputString.substring(2).toFloat();
+            break;
+          case ( 'd' ):
+            Sd = inputString.substring(2).toFloat();
+            break;
+        }
+        break;
+      case ( 'A' ):
+        switch ( inputString.charAt(1) )
+        {
+          case ( 'i' ):
+            Ai = inputString.substring(2).toFloat();
+            break;
+          case ( 'p' ):
+            Ap = inputString.substring(2).toFloat();
+            break;
+          case ( 'd' ):
+            Ad = inputString.substring(2).toFloat();
+            break;
+        }
+        break;
+      case ( 'f' ):
+        #if TTYPE==1  // FREQ
+        analyzer->complete(freqResp); // reset if doing freqResp
+        #endif
+        freqResp = !freqResp;
+        break;
+      case ( 'V' ):
+        #if TTYPE==2  // VECT
+        Vcomplete(vectoring); // reset if doing vector
+        #endif
+        vectoring = !vectoring;
+        break;
+      case ( 'R' ):
+        #if TTYPE==3  // RAMP
+        Rcomplete(vectoring); // reset if doing vector
+        #endif
+        vectoring = !vectoring;
+        break;
+      case ( 'Z' ):
+        #if TTYPE==4  // RAND
+        RandComplete(vectoring); // reset if doing vector
+        #endif
+        vectoring = !vectoring;
+        break;
+      case ( 'b' ):
+        bare = !bare;
+        break;
+      case ( 't' ):
+        test = !test;
+        break;
+      case ( 'c' ):
+        closingLoop = !closingLoop;
+        break;
+      case ( 's' ):
+        stepping = true;
+        stepVal = -stepVal;
+        break;
+      case ( 'v' ):
+        verbose = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
+        break;
+      case ( 'P' ):
+        double potThrottleX = inputString.substring(1).toFloat();
+        if (potThrottleX>=THTL_MIN && potThrottleX<=THTL_MAX)  // ignore otherwise
+        {
+          double vpotX = potThrottleX * POT_MAX / THTL_MAX;
+          potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
+        } 
+        break;
+    }
+/*
     if (inputString.charAt(0) == 'f')
     {
 #if TTYPE==1  // FREQ
@@ -566,6 +668,7 @@ void loop()
           potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
       } 
     }
+    */
     inputString = "";
     stringComplete = false;
   }
@@ -621,7 +724,7 @@ void loop()
 #elif TTYPE==3 // RAMP
       if ( vectoring ) exciter = Rcalculate(elapsedTime);
 #elif TTYPE==4 // RAND
-      if ( randomizer && vectoring ) exciter = RandCalculate(elapsedTime);
+      if ( control100 && vectoring ) exciter = RandCalculate(elapsedTime);
 #endif
     }
   }
@@ -678,7 +781,7 @@ void loop()
 #elif TTYPE==3 // RAMP
   if (Rcomplete()) vectoring = false;
 #elif TTYPE==4 // RAND
-  if (randomizer && RandComplete()) vectoring = false;
+  if (control100 && RandComplete()) vectoring = false;
 #endif
 }
 
@@ -703,9 +806,14 @@ void serialEvent()
     inputString += inChar;
     // if the incoming character is a newline, set a flag
     // so the main loop can do something about it:
-    if (inChar == '\n')
+    if (inChar=='\n' || inChar=='\0' || inChar==';' || inChar==',')
     {
       stringComplete = true;
+     // Remove whitespace
+      inputString.trim();
+      inputString.replace(" ","");
+      inputString.replace("=","");
+      Serial.println(inputString);
     }
   }
 }

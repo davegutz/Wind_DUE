@@ -11,6 +11,106 @@
 #ifndef _myFilters_H
 #define _myFilters_H
 
+class Debounce
+{
+public:
+  Debounce();
+  Debounce(const bool icValue, const int updates);
+  ~Debounce();
+  // operators
+  // functions
+  bool calculate(const bool in);
+  bool calculate(const bool in, const int RESET);
+protected:
+  int nz_;     // Number of past consequetive states to agree with input to pass debounce
+  bool *past_; // Array(nz_-1) of past inputs
+};
+
+
+
+class DetectRise
+{
+public:
+  DetectRise();
+  ~DetectRise();
+  // operators
+  // functions
+  bool calculate(const bool in);
+  bool calculate(const int in);
+  bool calculate(const double in);
+protected:
+  double past_;
+};
+
+
+class SRLatch
+{
+public:
+  SRLatch();
+  SRLatch(const bool icValue);
+  ~SRLatch();
+  // operators
+  // functions
+  bool calculate(const bool S, const bool R);
+protected:
+  bool state_;
+};
+
+class Delay
+{
+public:
+  Delay();
+  Delay(const double in, const int nz);
+  ~Delay();
+  // operators
+  // functions
+  double calculate(const double in);
+  double calculate(const double in, const int RESET);
+protected:
+  double *past_;
+  int nz_;
+};
+
+
+class TFDelay
+{
+public:
+  TFDelay();
+  TFDelay(const bool in, const double Tt, const double Tf, const double T);
+  ~TFDelay();
+  // operators
+  // functions
+  double calculate(const bool in);
+  double calculate(const bool in, const int RESET);
+  double calculate(const bool in, const double Tt, const double Tf);
+  double calculate(const bool in, const double Tt, const double Tf, const int RESET);
+protected:
+  int timer_;
+  int nt_;
+  int nf_;
+  double T_;
+};
+
+class RateLimit
+{
+public:
+  RateLimit();
+  RateLimit(const double in, const double T);
+  RateLimit(const double in, const double T, const double Rmax, const double Rmin);
+  ~RateLimit();
+  // operators
+  // functions
+  double calculate(const double in);
+  double calculate(const double in, const int RESET);
+  double calculate(const double in, const double Rmax, const double Rmin);
+  double calculate(const double in, const double Rmax, const double Rmin, const int RESET);
+protected:
+  double past_;
+  double jmax_;   // Max rate limit, units of in/update
+  double jmin_;   // Min rate limit, units of in/update (<0)
+  double T_;      // Update rate, sec
+};
+
 class DiscreteFilter
 {
 public:
