@@ -214,8 +214,8 @@ const double POT_SCL = (3.3 - POT_BIA) / POT_MAX; // Pot scalar, vdc
 #define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
 #endif
 #define CONTROL_DELAY    15000UL    // Control law wait (), micros
-#define CONTROL10_DELAY  150000UL   // Control law wait (), micros
-#define CONTROL100_DELAY 1500000UL  // Control law wait (), micros
+#define CONTROL_10_DELAY  150000UL   // Control law wait (), micros
+#define CONTROL_100_DELAY 1500000UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
 const double POT_MIN = 0;     // Minimum POT value, vdc
@@ -239,12 +239,16 @@ const double freqRespAdder = 6;    // +/- deg
 
 // Global variables
 double throttle = -5; // Servo value, 0-179 degrees
+bool powerEnable = false; // Turn on ESC power
 char buffer[256];
 LagTustin *throttleFilter; // Tustin lag noise filter
 FRAnalyzer *analyzer;      // Frequency response analyzer
 Servo myservo;             // create servo object to control dc motor
 ControlLaw *CLAW;          // Control Law
-Debounce *ClPinDebounce;   // Input switch status
+Debounce *ClPinDebounce;  // Input switch status
+Debounce *PowerDebounce;  // Power status
+TFDelay  *EnableDelayed;  // Power wait for Serial turn on
+TFDelay  *PowerDelayed;   // ESC wait for boot
 
 //#ifndef ARDUINO
 #ifdef TALK
@@ -322,8 +326,9 @@ void setup()
 #endif
 
   myservo.write(throttle);
-  digitalWrite(POWER_EN_PIN, HIGH);
+  digitalWrite(POWER_EN_PIN, LOW);
 
+  
 // Serial headers used by plotting programs
 // Header for analyzer.  TODO:  should be done in analyzer.cpp so done when needed
 #ifndef ARDUINO
@@ -354,6 +359,9 @@ void setup()
   // Instatiate gain scheduling tables
   CLAW = new ControlLaw(T, DENS_SI);
   ClPinDebounce = new Debounce((digitalRead(CL_PIN) == HIGH), 3);
+  PowerDebounce = new Debounce(false, 1);
+  PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
+  EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
 
 #ifdef ARDUINO
   delay(100);
@@ -366,13 +374,11 @@ void setup()
 
 void loop()
 {
-  static bool vectoring = false;            // Perform vector test status
-  int powerState = 0;                     // Monitor ESC power
-  static bool powerEnable = true;         // Turn on the ESC POW module
+  static bool vectoring = false;          // Perform vector test status
+  static bool powered = false;            // Monitor ESC power
+  static bool powerToCal = false;         // Wait for ESC bootup
   int buttonState = 0;                    // Pushbutton
   static bool closingLoop = false;        // Persisted closing loop by pin cmd, T/F
-  //static bool closingLoopLast = false;    // Last closing loop by pin cmd, T/F
-  //static bool closingLoopPast = false;   // Past closing loop by pin cmd, T/F
   static bool stepping = false;           // Step by Photon send String
   bool control;                           // Control frame, T/F
   bool control10;                         // Control 10T frame, T/F
@@ -402,6 +408,7 @@ void loop()
   static double vpot = 0;                 // Pot value, volts
   static int f2vValue = INSCALE / 4;      // Dial raw value
   static int potValue = INSCALE / 3;      // Dial raw value
+  static double potThrottle = 0;
 
   // Executive
   if (start == 0UL) start = now;
@@ -417,36 +424,32 @@ void loop()
   {
     updateTime = float(deltaTick) / 1000000.0;
     lastControl = now;
-    unsigned long deltaTick10 = now - lastControl10;
-    control10 = (deltaTick10 >= CONTROL10_DELAY - CLOCK_TCK / 2);
-    if (control10)
-    {
-      lastControl10 = now;
-    }
-    unsigned long deltaTick100 = now - lastControl100;
-    control100 = (deltaTick100 >= CONTROL100_DELAY - CLOCK_TCK / 2);
-    if (control100)
-    {
-      lastControl100 = now;
-    }
+  }
+  unsigned long deltaTick10 = now - lastControl10;
+  control10 = (deltaTick10 >= CONTROL_10_DELAY - CLOCK_TCK / 2);
+  if (control10)
+  {
+    lastControl10 = now;
+  }
+  unsigned long deltaTick100 = now - lastControl100;
+  control100 = (deltaTick100 >= CONTROL_100_DELAY - CLOCK_TCK / 2);
+  if (control100)
+  {
+    lastControl100 = now;
   }
   if (!bare)
   {
-    if ( control ) // Debounce three updates
+    if ( control )
     {
-      /*
-      bool closingLoopSwitch = (digitalRead(CL_PIN) == HIGH);
-      if (!closingLoop)
-        closingLoop = closingLoopLast && closingLoopPast && closingLoopSwitch;
-      else
-        closingLoop = !(!closingLoopLast && !closingLoopPast && !closingLoopSwitch);
-      closingLoopPast = closingLoopLast;
-      closingLoopLast = closingLoopSwitch;
-      */
       closingLoop = ClPinDebounce->calculate(digitalRead(CL_PIN) == HIGH);
     }
+    if ( control100 )
+    {
+      powered = PowerDebounce->calculate(digitalRead(POWER_IN_PIN) == HIGH);
+      powerToCal = PowerDelayed->calculate(powered);
+      powerEnable = EnableDelayed->calculate(true);
+    }
   }
-  powerState  = digitalRead(POWER_IN_PIN);
   buttonState = digitalRead(BUTTON_PIN);
 #ifdef ARDUINO
   if (buttonState == HIGH && (now - lastButton > 200000UL))
@@ -514,7 +517,6 @@ void loop()
   mode = closingLoop*1000 + test*100 + testOnButton*10 + analyzing;
 
 
-//#ifndef ARDUINO
 #ifdef TALK
   // Serial event  (terminate Send String data with 0A using CoolTerm)
   double Si, Sp, Sd;
@@ -600,75 +602,6 @@ void loop()
         } 
         break;
     }
-/*
-    if (inputString.charAt(0) == 'f')
-    {
-#if TTYPE==1  // FREQ
-      analyzer->complete(freqResp); // reset if doing freqResp
-#endif
-      freqResp = !freqResp;
-    }
-    if (inputString.charAt(0) == 'V')
-    {
-#if TTYPE==2  // VECT
-      Vcomplete(vectoring); // reset if doing vector
-#endif
-      vectoring = !vectoring;
-    }
-    if (inputString.charAt(0) == 'R')
-    {
-#if TTYPE==3  // RAMP
-      Rcomplete(vectoring); // reset if doing vector
-#endif
-      vectoring = !vectoring;
-    }
-    if (inputString.charAt(0) == 'Z')
-    {
-#if TTYPE==4  // RAND
-      RandComplete(vectoring); // reset if doing vector
-#endif
-      vectoring = !vectoring;
-    }
-    if (inputString.charAt(0) == 'b')
-    {
-      bare = !bare;
-    }
-    if (inputString.charAt(0) == 't')
-    {
-      test = !test;
-    }
-    if (inputString.charAt(0) == 'c')
-    {
-      closingLoop = !closingLoop;
-    }
-    if (inputString.charAt(0) == 's')
-    {
-      stepping = true;
-      stepVal = -stepVal;
-    }
-    if (inputString.charAt(0) == 'v')
-    {
-      #ifdef PHOTON
-      int vcheck = atoi(inputString.substring(1));
-      #else
-      int vcheck = atoi(inputString.substring(1).c_str());
-      #endif
-      if (vcheck>=0 && vcheck<10) verbose = vcheck;
-    }
-    if (inputString.charAt(0) == 'P')
-    {
-      #ifdef PHOTON
-      double potThrottleX = atof(inputString.substring(1));
-      #else
-      double potThrottleX = atof(inputString.substring(1).c_str());
-      #endif
-      if (potThrottleX>=THTL_MIN && potThrottleX<=THTL_MAX)  // ignore otherwise
-      {
-          double vpotX = potThrottleX * POT_MAX / THTL_MAX;
-          potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
-      } 
-    }
-    */
     inputString = "";
     stringComplete = false;
   }
@@ -676,7 +609,7 @@ void loop()
 
 
 
-  // Interrogate inputs
+  // Interrogate analog inputs
   if (control)
   {
     if (!bare)
@@ -694,12 +627,23 @@ void loop()
     vpotDead = fmax(fmin(vpotDead, vpot + vpotHalfDB), vpot - vpotHalfDB);
     if (!freqResp)
       vpot_filt = throttleFilter->calculate(vpotDead, RESET); // Freeze pot for FR
-    double potThrottle = vpot_filt * THTL_MAX / POT_MAX;      // deg
+    potThrottle = vpot_filt * THTL_MAX / POT_MAX;      // deg
     double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P;  // Rate normalizer, %Ng/deg
     potThrottle += stepping * stepVal / dNdT;
+//    bool calComplete = false; // calc by CLAW
+//    bool calibrate = powerToCal && potThrottle<=5 && !calComplete; // input to CLAW
+
     throttle = CLAW->calculate(RESET, updateTime, closingLoop, analyzing, freqResp, vectoring, exciter, freqRespScalar, freqRespAdder, potThrottle, vf2v);
     if (elapsedTime > RESEThold)
       RESET = 0;
+  }
+  if ( control100)
+  {
+    bool calComplete = false; // calc by CLAW
+    bool calibrate = powerToCal && potThrottle<=5 && !calComplete; // input to CLAW
+    sprintf(buffer, "powerEnable=%s, powered=%s, powerToCal=%s, calComplete=%s, calibrate=%s\n", 
+      String(powerEnable).c_str(),String(powered).c_str(), String(powerToCal).c_str(), String(calComplete).c_str(), String(calibrate).c_str()); 
+      Serial.print(buffer);
   }
 
   // Commands to Hardware
@@ -707,6 +651,9 @@ void loop()
   {
     myservo.write(throttle); // sets the servo position according to the scaled value
   }
+    if ( powerEnable )  digitalWrite(POWER_EN_PIN, HIGH);
+    else digitalWrite(POWER_EN_PIN, LOW);
+
 
   // Calculate frequency response
   if (control)

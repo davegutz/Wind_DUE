@@ -10,6 +10,8 @@
 #include "myFilters.h"
 #include "math.h"
 
+#include <Arduino.h> //needed for Serial.println
+
 #ifndef ARDUINO
 #include "application.h" // Should not be needed if file .ino or Arduino
 #endif
@@ -77,8 +79,10 @@ bool DetectRise::calculate(const int in)
 TFDelay::TFDelay()
     : timer_(0), nt_(0), nf_(0), T_(1) {}
 TFDelay::TFDelay(const bool in, const double Tt, const double Tf, const double T)
-    : timer_(0), nt_(int(fmax(round(Tt/T),0))), nf_(int(fmax(round(Tf/T),0))), T_(T)
+    : timer_(0), nt_(int(fmax(round(Tt/T)+1,0))), nf_(int(fmax(round(Tf/T+1),0))), T_(T)
 {
+  if ( Tt == 0 ) nt_ = 0;
+  if ( Tf == 0 ) nf_ = 0;
   if ( in ) timer_ = nf_;
   else timer_ = -nt_;
 }
@@ -105,6 +109,8 @@ double TFDelay::calculate(const bool in)
       if ( timer_>=0 ) timer_=nf_;
     }
   }
+  Serial.print("in=");Serial.print(in);Serial.print(", timer=");Serial.print(timer_);Serial.print(", nt_=");Serial.print(nt_);
+  Serial.print(", nf_="); Serial.print(nf_);Serial.print(", return=");Serial.println(timer_>=0);
   return ( timer_>= 0 );
 }
 double TFDelay::calculate(const bool in, const int RESET)
