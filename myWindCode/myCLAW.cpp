@@ -18,7 +18,7 @@
 // Global variables
 extern int verbose;
 extern bool bare; // Fake inputs and sensors for test purposes
-extern bool test; // Fake inputs and sensors for test purposes
+extern bool dry; // Fake inputs and sensors for test purposes
 extern char buffer[256];
 
 //Class ControlLaw
@@ -58,7 +58,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
 {
   static const double ngmin = NG_MIN-exp(-P_LTALL_NG[0]/P_LTALL_NG[1]);
   // Inputs
-  if (bare || test)
+  if (bare || dry)
     pcnt_ = modelTS_;
   else
     pcnt_ = fmin(fmax(P_V4_NT[0] + vf2v * (P_V4_NT[1] + vf2v * P_V4_NT[2]) / RPM_P, 0.0), 100);

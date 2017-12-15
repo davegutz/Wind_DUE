@@ -43,7 +43,7 @@ SYSTEM_THREAD(ENABLED); // Make sure code always run regardless of network statu
 //#define CALIBRATING         // Use this to port converted v4 to the vpot serial signal for calibration
 int     verbose = 0;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "b"
-bool    test = false;    // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "t"
+bool    dry = false;    // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
 
 #if TTYPE==0  // STEP
@@ -298,6 +298,8 @@ double VtnowStart_ = 0;     // now time of vector start reference, s
 bool Vcomplete_ = false;    // Status of vector, T=underway
 #endif
 
+// Calibration
+bool Calibrate(void);
 
 
 void setup()
@@ -325,7 +327,7 @@ void setup()
                             double(CONTROL_DELAY / 1e6), ix, iy, nsigFn, ntfFn, "t,ref,exc,thr,mod,nf,T"); // 15 ms any
 #endif
 
-  myservo.write(throttle);
+  myservo.write(180);
   digitalWrite(POWER_EN_PIN, LOW);
 
   
@@ -514,7 +516,7 @@ void loop()
 #endif
   else
     analyzing = false;
-  mode = closingLoop*1000 + test*100 + testOnButton*10 + analyzing;
+  mode = closingLoop*1000 + dry*100 + testOnButton*10 + analyzing;
 
 
 #ifdef TALK
@@ -581,7 +583,7 @@ void loop()
         bare = !bare;
         break;
       case ( 't' ):
-        test = !test;
+        dry = !dry;
         break;
       case ( 'c' ):
         closingLoop = !closingLoop;
@@ -630,8 +632,6 @@ void loop()
     potThrottle = vpot_filt * THTL_MAX / POT_MAX;      // deg
     double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P;  // Rate normalizer, %Ng/deg
     potThrottle += stepping * stepVal / dNdT;
-//    bool calComplete = false; // calc by CLAW
-//    bool calibrate = powerToCal && potThrottle<=5 && !calComplete; // input to CLAW
 
     throttle = CLAW->calculate(RESET, updateTime, closingLoop, analyzing, freqResp, vectoring, exciter, freqRespScalar, freqRespAdder, potThrottle, vf2v);
     if (elapsedTime > RESEThold)
@@ -639,21 +639,18 @@ void loop()
   }
   if ( control100)
   {
-    bool calComplete = false; // calc by CLAW
-    bool calibrate = powerToCal && potThrottle<=5 && !calComplete; // input to CLAW
-    sprintf(buffer, "powerEnable=%s, powered=%s, powerToCal=%s, calComplete=%s, calibrate=%s\n", 
-      String(powerEnable).c_str(),String(powered).c_str(), String(powerToCal).c_str(), String(calComplete).c_str(), String(calibrate).c_str()); 
-      Serial.print(buffer);
   }
 
   // Commands to Hardware
-  if (control && !test && !bare)
+  if (control && !dry && !bare)
   {
-    myservo.write(throttle); // sets the servo position according to the scaled value
-  }
+    static bool calComplete = false;
+    bool calibrate = powerToCal && potThrottle<=5 && !calComplete;
+    if ( calibrate ) calComplete = Calibrate();
+    else if ( calComplete )  myservo.write(throttle); 
     if ( powerEnable )  digitalWrite(POWER_EN_PIN, HIGH);
     else digitalWrite(POWER_EN_PIN, LOW);
-
+  }
 
   // Calculate frequency response
   if (control)
@@ -878,4 +875,16 @@ void RandComplete(const bool set)
   VtnowStart_ = 0;
 };
 #endif
+
+bool Calibrate(void)
+{
+  int throttle = 180;
+  while ( throttle>0 )
+  {
+    myservo.write(throttle);
+    throttle -= 10;
+    delay(50);      
+  }
+  return(true);
+}
 
