@@ -232,6 +232,7 @@ Debounce *PowerDebounce;  // Power status
 Debounce *ButtonDebounce; // Pushbutton status
 TFDelay  *EnableDelayed;  // Power wait for Serial turn on
 TFDelay  *PowerDelayed;   // ESC wait for boot
+SRLatch  *ThrottleHold;   // Wait for cal complete and throttle low to release throttle to hardware
 String inputString = "";        // a string to hold incoming data
 boolean stringComplete = false; // whether the string is complete
 
@@ -331,7 +332,7 @@ void setup()
   ButtonDebounce = new Debounce(0, 3);
   PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
   EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
-
+  ThrottleHold  = new SRLatch(true);
 #ifdef ARDUINO
   delay(100);
 #else
@@ -515,14 +516,31 @@ void loop()
   }
 
   // Commands to Hardware
-  if (control && !dry && !bare)
+  if ( control )
   {
-    static bool calComplete = false;
-    bool calibrate = powerToCal && potThrottle<=5 && !calComplete;
-    if ( calibrate ) calComplete = Calibrate();
-    else if ( calComplete )  myservo.write(throttle); 
-    if ( powerEnable )  digitalWrite(POWER_EN_PIN, HIGH);
-    else digitalWrite(POWER_EN_PIN, LOW);
+    if ( !dry && !bare )
+    {
+      // Calibration always happens if power status responds properly (powered returns after power enable).
+      // When calibration complete, though, potThrottle must be below 5 degrees to release user throttle to hardware
+      // Until throttle is pulled back, end of calibration (0 degrees) is held.
+      // As soon as bare is detected, terminate hardware outputs for safety reasons.
+      static bool calComplete = false;
+      bool calibrate = powerToCal && !calComplete;
+      if ( calibrate ) calComplete = Calibrate();
+      else if ( calComplete )
+      {
+        bool freeze = ThrottleHold->calculate(!calComplete, calComplete && potThrottle<=5);
+        if ( freeze ) myservo.write(0);
+        else myservo.write(throttle);
+      }
+      if ( powerEnable )  digitalWrite(POWER_EN_PIN, HIGH);
+      else digitalWrite(POWER_EN_PIN, LOW);
+    }
+    else  // Terminate hardware outputs for safety reasons.
+    {
+      myservo.write(0);
+      digitalWrite(POWER_EN_PIN, LOW);
+    }
   }
 
   // Calculate frequency response
@@ -562,7 +580,6 @@ void loop()
       SerialUSB.print(CLAW->modelTS());SerialUSB.print(",");
       SerialUSB.print(CLAW->modelG()); SerialUSB.print(",");
       SerialUSB.print(throttle/1.8);   SerialUSB.print(",");
-//      SerialUSB.print("100,-25,");
       SerialUSB.println("");
     }
     if (freqResp)
