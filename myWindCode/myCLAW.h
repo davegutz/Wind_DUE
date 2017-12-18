@@ -65,7 +65,8 @@ static const double DELTAV = 7;                     // Air velocity turbine firs
 #elif KIT==2
 // Ard2_Turn2_ESC2_G2b_T2a 1/24/2017
 static const double xALL[6] = {0.,    22.0,  36.5,    49.1,   67.7,    80.};   // Gain breakpoints, %Nt
-static const double P_V4_NT[3] = {0, 15929, -1553}; // Coeff V4(v) to NT(rpm)
+//static const double P_V4_NT[3] = {0, 15929, -1553}; // Coeff V4(v) to NT(rpm)
+static const double P_V4_NT[3] = {0, 12914, 87};   // Coeff V4(v) to NT(rpm)
 static const double P_NG_NT[2] = {-5142, 0.919};    // Coeff NG(rpm) to NT(rpm)
 static const double P_NT_NG[2] = {5612,  1.087};    // Coeff NT(rpm) to NG(rpm)
 static const double DCPDL = -1.1;                   // dCpdLambda, dimensionless.  Cp is power coefficient and Lambda is speed tip ratio
