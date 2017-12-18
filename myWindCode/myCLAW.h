@@ -4,7 +4,7 @@
 #include "myTables.h"
 #include "myFilters.h"
 #define KIT   2    // -1=Photon, 0-5 = Arduino
-#include "myI.h"
+#include "myPID.h"
 
 
 // Plant
@@ -132,6 +132,8 @@ public:
   double At(void) { return(at_);};
   double tldF(void) { return(tldF_);};
   double tlgF(void) { return(tlgF_);};
+  double LG(void) { return(Ki_);};
+  double TLD(void) { return(Kp_/Ki_);};
   void Sd(const double S) { sd_ = S; };
   void Sg(const double S) { sg_ = S; };
   void St(const double S) { st_ = S; };

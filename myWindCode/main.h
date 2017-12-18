@@ -36,6 +36,7 @@ int     ttype = 0;       // 0=STEP, 1=FREQ, 2=VECT, 3=RAMP (ramp is open loop on
 int     verbose = 0;     // [0] Debug, as much as you can tolerate.   For talk() set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "b"
 bool    potOverride = false; // [false] The pot is over-ridden by talk()
+bool    closeOverride = false; // [false] the close loop switch is over-ridden by talk();
 bool    dry = false;     // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
 bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
@@ -194,8 +195,8 @@ const double POT_SCL = (3.3 - POT_BIA) / POT_MAX; // Pot scalar, vdc
 #define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
 #endif
 #define CONTROL_DELAY    15000UL    // Control law wait (), micros
-#define CONTROL_10_DELAY  150000UL   // Control law wait (), micros
-#define CONTROL_100_DELAY 1500000UL  // Control law wait (), micros
+#define CONTROL_10_DELAY  CONTROL_DELAY*10UL   // Control law wait (), micros
+#define CONTROL_100_DELAY CONTROL_DELAY*100UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
 const double POT_MIN = 0;     // Minimum POT value, vdc
@@ -365,7 +366,7 @@ void loop()
   static unsigned long lastButton = 0UL;  // Last button push time, micros
   static unsigned long lastFR = 0UL;      // Last analyzing, micros
 #endif
-  static int mode = 0;                    // Mode of operation First digit: closingLoop, Second digit: testOnButton, Third digit:  analyzing
+  static int mode = 0;                    // Mode of operation First digit: bare, Second digit:  closingLoop, Third digit: testOnButton, Fourth digit:  analyzing
   static int RESET = 1;                   // Dynamic reset
   const double RESEThold = 5;             // RESET hold, s
   static double exciter = 0;              // Frequency response excitation, fraction
@@ -409,7 +410,7 @@ void loop()
   {
     if ( control )
     {
-      closingLoop = ClPinDebounce->calculate(digitalRead(CL_PIN) == HIGH);
+      if ( !closeOverride ) closingLoop = ClPinDebounce->calculate(digitalRead(CL_PIN) == HIGH);
     }
     if ( control100 )
     {
@@ -837,6 +838,8 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
         break;
       case ( 'c' ):
         *closingLoop = !(*closingLoop);
+        if ( *closingLoop ) closeOverride = true;
+        else closeOverride = false;
         break;
       case ( 's' ):
         *stepping = !(*stepping);
@@ -901,16 +904,19 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
   //          testOnButton = STEP;
       }
       break;
-      case ('h'):
+      case ('h'): 
+        Serial.print("Using KIT# "); Serial.println(KIT);
         Serial.print("p= "); Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [on]");
         Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative scalar [1]");
         Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative adder [1]");
-        Serial.print("          tld= "); Serial.print(CLAW->tldF()); Serial.println("    : PID fixed lead [0.015]");
-        Serial.print("          tld= "); Serial.print(CLAW->tlgF()); Serial.println("    : PID fixed lag [0.015]");
-        Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain scalar [1]");
-        Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain adder [1]");
+        Serial.print("          tld= "); Serial.print(CLAW->tldF(),3); Serial.println("    : PID fixed lead [0.015]");
+        Serial.print("          tld= "); Serial.print(CLAW->tlgF(),3); Serial.println("    : PID fixed lag [0.015]");
+        Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain (integral) scalar [1]");
+        Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain (integral) adder [1]");
+        Serial.print("          LG= "); Serial.print(CLAW->LG()); Serial.println("    : PID loop gain, r/s [various]");
         Serial.print("St= "); Serial.print(CLAW->St());  Serial.println("    : PID lead (proportional) scalar [1]");
         Serial.print("At= "); Serial.print(CLAW->At());  Serial.println("    : PID lead (proportional) adder [1]");
+        Serial.print("          TLD= "); Serial.print(CLAW->TLD()); Serial.println("    : PID TLD, sec [various]");
         Serial.print("f=  "); Serial.print(freqResp);    Serial.println("    : frequency response test toggle [false]");
         Serial.print("V=  "); Serial.print(*vectoring);  Serial.println("    : vectoring toggle [false]");
         Serial.print("R=  "); Serial.print(*vectoring);  Serial.println("    : ramping toggle [false]");
@@ -918,11 +924,11 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
         Serial.print("b=  "); Serial.print(bare);        Serial.println("    : bare hardware toggle [false]");
         Serial.print("B=  "); Serial.print(*buttonState);Serial.println("    : button state toggle [false]");
         Serial.print("d=  "); Serial.print(dry);         Serial.println("    : dry toggle no turbine [false]");
-        Serial.print("c=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [false]");
+        Serial.print("c=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [false].   Will over-ride a failed open switch.");
         Serial.print("s=  "); Serial.print(*stepping);   Serial.println("    : stepping toggle [false]");
-        Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10 [0]");
+        Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10. 2 for save csv [0]");
         Serial.print("P=  "); Serial.print(potThrottle); Serial.println("    : POT override, deg [when input P value>-50]");
-        Serial.print("T=  "); 
+        Serial.print("T<?>=  "); 
         switch (ttype)
         {
           case (0):
@@ -944,7 +950,7 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
             Serial.print("SQUARE");
             break;
       }
-      Serial.println("    : transient performed with button push [STEP]");
+      Serial.println("    : transient performed with button push (?= s, f, v, r, x, q) [STEP]");
     }
     inputString = "";
     stringComplete = false;
