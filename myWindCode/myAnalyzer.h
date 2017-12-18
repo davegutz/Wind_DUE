@@ -1,6 +1,6 @@
 #ifndef _myAnalyzer_h
 #define _myAnalyzer_h
-typedef enum {STEP, FREQ, VECT, RAMP, RAND} testType;
+typedef enum {STEP, FREQ, VECT, RAMP, RAND, SQUARE} testType;
 static const double pi = 3.14159265358979323846264338327950288419716939937510;
 
 class FRAnalyzer

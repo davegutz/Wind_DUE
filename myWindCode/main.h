@@ -24,42 +24,22 @@
 SYSTEM_THREAD(ENABLED); // Make sure code always run regardless of network status
 #endif
 
-// Enable TALK mode.   If active, when open interactive serial monitor such as CoolTerm
-// then can enter commands by sending strings.   End the strings with a real carriage return
-// right in the "Send String" box then press "Send."
-// String definitions are below.
-#ifdef DUE || #ifdef PHOTON
-#define TALK
-#endif
 
 #include "myAnalyzer.h"
 #include "myTables.h"
 #include "math.h"
 
 // Test features
-// in myClaw.h  #define CTYPE 1   // 0=P+I, 1=I, 2=PID
 // in myClaw.h  #define KIT   1   // -1=Photon, 0-4 = Arduino
-#define TTYPE 0          // 0=STEP, 1=FREQ, 2=VECT, 3=RAMP (ramp is open loop only), 4=RAND
-//#define CALIBRATING         // Use this to port converted v4 to the vpot serial signal for calibration
-int     verbose = 2;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
-bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "b"
-bool    dry = false;    // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "t"
+int     ttype = 0;       // 0=STEP, 1=FREQ, 2=VECT, 3=RAMP (ramp is open loop only), 4=RAND, 5=SQUARE (at step size, 5 sec period)
+//#define CALIBRATING    // Use this to port converted v4 to the vpot serial signal for calibration
+int     verbose = 0;     // [0] Debug, as much as you can tolerate.   For talk() set using "v#"
+bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "b"
+bool    potOverride = false; // [false] The pot is over-ridden by talk()
+bool    dry = false;     // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
-bool    plotting = true;    // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
+bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
 
-#if TTYPE==0  // STEP
-testType testOnButton = STEP;
-#elif TTYPE==1  // FREQ
-testType testOnButton = FREQ;
-#elif TTYPE==2  // VECT
-testType testOnButton = VECT;
-#elif TTYPE==3  // RAMP
-testType testOnButton = RAMP;
-#elif TTYPE==4  // RAND
-testType testOnButton = RAND;
-#else
-#error "TTYPE bad"
-#endif
 
 /*
 Controlling a servo position using a potentiometer (variable resistor)
@@ -175,7 +155,6 @@ Connections for Arduino:
 
 // Disable flags if needed.  Usually commented
 //#define DISTURB_CONTROL                       // Use disturbance rejection gains in CLAW
-//#define USE_FIXED_LL                          // Use the fixed lead lag compensator
 
 // Constants always defined
 // #define CONSTANT
@@ -223,6 +202,7 @@ const double POT_MIN = 0;     // Minimum POT value, vdc
 const double DENS_SI = 1.225; // Air density, kg/m^3
 
 // Test
+testType testOnButton = STEP;
 bool freqResp = false;             // Perform frequency response test status
 //bool vectoring = false;            // Perform vector test status
 const int nsigFn = 4;              // Length of fn
@@ -248,16 +228,12 @@ Servo myservo;             // create servo object to control dc motor
 ControlLaw *CLAW;          // Control Law
 Debounce *ClPinDebounce;  // Input switch status
 Debounce *PowerDebounce;  // Power status
+Debounce *ButtonDebounce; // Pushbutton status
 TFDelay  *EnableDelayed;  // Power wait for Serial turn on
 TFDelay  *PowerDelayed;   // ESC wait for boot
-
-//#ifndef ARDUINO
-#ifdef TALK
 String inputString = "";        // a string to hold incoming data
 boolean stringComplete = false; // whether the string is complete
-#endif
 
-#if TTYPE==2 // VECT
 // Test vector setup (functions at bottom of this file)
 bool Vcomplete(void);
 double Vcalculate(double);
@@ -270,10 +246,8 @@ double Vtime_ = 0;          // Time into vector, s
 double VtnowStart_ = 0;     // now time of vector start reference, s
 bool Vcomplete_ = false;    // Status of vector, T=underway
 unsigned int Viv_ = 0;      // Index of present time in vector
-#endif
 
 
-#if TTYPE==3 // RAMP
 // Ramp vector setup (functions at bottom of this file)
 bool Rcomplete(void);
 double Rcalculate(double);
@@ -286,22 +260,16 @@ double Rtime_ = 0;          // Time into vector, s
 double RtnowStart_ = 0;     // now time of vector start reference, s
 bool Rcomplete_ = false;    // Status of vector, T=underway
 unsigned int Riv_ = 0;      // Index of present time in vector
-#endif
 
-#if TTYPE==4 // RAND
 // Test vector setup (functions at bottom of this file)
 bool RandComplete(void);
 double RandCalculate(double);
 void RandComplete(bool);
-double Voutput_ = 0;        // Excitation value
-double Vtime_ = 0;          // Time into vector, s
-double VtnowStart_ = 0;     // now time of vector start reference, s
-bool Vcomplete_ = false;    // Status of vector, T=underway
-#endif
 
 // Calibration
 bool Calibrate(void);
-
+void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
+    int *buttonState, ControlLaw *CLAW, const int potThrottle);
 
 void setup()
 {
@@ -322,12 +290,10 @@ void setup()
   double T = float(CONTROL_DELAY) / 1000000.0;
   throttleFilter = new LagTustin(T, tau, -0.1, 0.1);
 
-#if TTYPE==1
   // Frequency Response
   //                        wmin    wmax  dw    minCy numCySc  iniCy  wSlow
   analyzer = new FRAnalyzer(-0.8,   1.4,  0.1,  2,    1.0,     6,     1 / tauG,
                             double(CONTROL_DELAY / 1e6), ix, iy, nsigFn, ntfFn, "t,ref,exc,thr,mod,nf,T"); // 15 ms any
-#endif
 
   myservo.write(180);
   digitalWrite(POWER_EN_PIN, LOW);
@@ -354,16 +320,14 @@ void setup()
     Serial.print(buffer);
   }
 
-//#ifndef ARDUINO
-#ifdef TALK
   // Serial Event to allow switches to be passed in by user Serial transmit
   inputString.reserve(200); // Reserve 200 bytes for inputString Serial Event
-#endif
 
   // Instatiate gain scheduling tables
   CLAW = new ControlLaw(T, DENS_SI);
   ClPinDebounce = new Debounce((digitalRead(CL_PIN) == HIGH), 3);
   PowerDebounce = new Debounce(false, 1);
+  ButtonDebounce = new Debounce(0, 3);
   PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
   EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
 
@@ -453,19 +417,17 @@ void loop()
       powerToCal = PowerDelayed->calculate(powered);
       powerEnable = EnableDelayed->calculate(true);
     }
+    buttonState = ClPinDebounce->calculate(digitalRead(BUTTON_PIN));
   }
-  buttonState = digitalRead(BUTTON_PIN);
-#ifdef ARDUINO
   if (buttonState == HIGH && (now - lastButton > 200000UL))
   {
     lastButton = now;
+    if ( bare ) buttonState = LOW;  // Reset if bare
     switch ( testOnButton )
     {
       case FREQ:
       {
-#if TTYPE==1 // FREQ
         analyzer->complete(freqResp); // reset if doing freqResp
-#endif      
         freqResp = !freqResp;
         break;
       }
@@ -477,149 +439,54 @@ void loop()
       }
       case VECT:
       {
-#if TTYPE==2 // VECT
         Vcomplete(vectoring); // reset if doing vector
-#endif
         vectoring = !vectoring;
         break;
       }
       case RAMP:
       {
-#if TTYPE==3 // RAMP
         Rcomplete(vectoring); // reset if doing vector
-#endif
         vectoring = !vectoring;
         break;
       }
       case RAND:
       {
-#if TTYPE==4 // RAND
         RandComplete(vectoring); // reset if doing vector
-#endif
         vectoring = !vectoring;
-  sprintf(buffer, "%s\n", String(vectoring).c_str()); Serial.print(buffer);
         break;
       }
     }
   }
-#endif
-#if TTYPE==1 // FREQ
-  if ( freqResp)
-    analyzing = ( ((now - lastFR) >= FR_DELAY && !analyzer->complete()) );
-#elif TTYPE==2 // VECT
-  if ( vectoring )
-    analyzing = !Vcomplete();
-#elif TTYPE==3 // RAMP
-  if ( vectoring )
-    analyzing = !Rcomplete();
-#elif TTYPE==4 // RAND
-  if ( control100 && vectoring  )
-    analyzing = !RandComplete();
-#endif
-  else
-    analyzing = false;
-  mode = closingLoop*1000 + dry*100 + testOnButton*10 + analyzing;
-
-
-#ifdef TALK
-  // Serial event  (terminate Send String data with 0A using CoolTerm)
-  double Si, Sp, Sd;
-  double Ai, Ap, Ad;
-  if (stringComplete)
+  switch (ttype)
   {
-    switch ( inputString.charAt(0) )
-    {
-      case ( 'p' ):
-        plotting = !plotting;
-        break;
-      case ( 'S' ):
-        switch ( inputString.charAt(1) )
-        {
-          case ( 'i' ):
-            Si = inputString.substring(2).toFloat();
-            break;
-          case ( 'p' ):
-            Sp = inputString.substring(2).toFloat();
-            break;
-          case ( 'd' ):
-            Sd = inputString.substring(2).toFloat();
-            break;
-        }
-        break;
-      case ( 'A' ):
-        switch ( inputString.charAt(1) )
-        {
-          case ( 'i' ):
-            Ai = inputString.substring(2).toFloat();
-            break;
-          case ( 'p' ):
-            Ap = inputString.substring(2).toFloat();
-            break;
-          case ( 'd' ):
-            Ad = inputString.substring(2).toFloat();
-            break;
-        }
-        break;
-      case ( 'f' ):
-        #if TTYPE==1  // FREQ
-        analyzer->complete(freqResp); // reset if doing freqResp
-        #endif
-        freqResp = !freqResp;
-        break;
-      case ( 'V' ):
-        #if TTYPE==2  // VECT
-        Vcomplete(vectoring); // reset if doing vector
-        #endif
-        vectoring = !vectoring;
-        break;
-      case ( 'R' ):
-        #if TTYPE==3  // RAMP
-        Rcomplete(vectoring); // reset if doing vector
-        #endif
-        vectoring = !vectoring;
-        break;
-      case ( 'Z' ):
-        #if TTYPE==4  // RAND
-        RandComplete(vectoring); // reset if doing vector
-        #endif
-        vectoring = !vectoring;
-        break;
-      case ( 'b' ):
-        bare = !bare;
-        break;
-      case ( 't' ):
-        dry = !dry;
-        break;
-      case ( 'c' ):
-        closingLoop = !closingLoop;
-        break;
-      case ( 's' ):
-        stepping = true;
-        stepVal = -stepVal;
-        break;
-      case ( 'v' ):
-        verbose = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
-        break;
-      case ( 'P' ):
-        double potThrottleX = inputString.substring(1).toFloat();
-        if (potThrottleX>=THTL_MIN && potThrottleX<=THTL_MAX)  // ignore otherwise
-        {
-          double vpotX = potThrottleX * POT_MAX / THTL_MAX;
-          potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
-        } 
-        break;
-    }
-    inputString = "";
-    stringComplete = false;
+  case (1):
+    if ( freqResp) // FREQ
+    analyzing = ( ((now - lastFR) >= FR_DELAY && !analyzer->complete()) );
+    break;
+  case (2):  // VECT
+    if ( vectoring ) analyzing = !Vcomplete();
+    break;
+  case (3):   // RAMP
+    if ( vectoring ) analyzing = !Rcomplete();
+    break;
+  case (4):  // RAND
+    if ( control100 && vectoring  ) analyzing = !RandComplete();
+    else analyzing = false;
+    break;
   }
-#endif
+  mode = bare*10000 + closingLoop*1000 + dry*100 + testOnButton*10 + analyzing;
 
-
+  // Discuss things with the user
+// When open interactive serial monitor such as CoolTerm
+// then can enter commands by sending strings.   End the strings with a real carriage return
+// right in the "Send String" box then press "Send."
+// String definitions are below.
+  talk(&vectoring, &closingLoop, &stepping, &potValue, &buttonState, CLAW, potThrottle);
 
   // Interrogate analog inputs
   if (control)
   {
-    if (!bare)
+    if (!bare && !potOverride)
     {
       potValue = analogRead(POT_PIN);
       f2vValue = analogRead(F2V_PIN);
@@ -666,15 +533,21 @@ void loop()
     fn[3] = CLAW->pcntRef();
     if (analyzing)
     {
-#if TTYPE==1  // FREQ
-      if ( freqResp ) exciter = analyzer->calculate(fn, nsigFn); // use previous exciter for everything
-#elif TTYPE==2 // VECT
-      if ( vectoring ) exciter = Vcalculate(elapsedTime);
-#elif TTYPE==3 // RAMP
-      if ( vectoring ) exciter = Rcalculate(elapsedTime);
-#elif TTYPE==4 // RAND
-      if ( control100 && vectoring ) exciter = RandCalculate(elapsedTime);
-#endif
+      switch ( ttype )
+      {
+        case ( 1 ):  // FREQ
+          if ( freqResp ) exciter = analyzer->calculate(fn, nsigFn); // use previous exciter for everything
+          break;
+        case ( 2 ):  // VECT
+          if ( vectoring ) exciter = Vcalculate(elapsedTime);
+          break;
+        case ( 3 ):  // RAMP
+          if ( vectoring ) exciter = Rcalculate(elapsedTime);
+          break;
+        case ( 4 ):  // RAND
+          if ( control100 && vectoring ) exciter = RandCalculate(elapsedTime);
+          break;
+      }
     }
   }
 
@@ -703,9 +576,7 @@ void loop()
         Serial.print(buffer);
         if (!analyzer->complete())
         {
-#if TTYPE==1 // FREQ
-          analyzer->publish();
-#endif
+          if ( ttype==1 ) analyzer->publish();
         }
         Serial.println("");
       }
@@ -733,21 +604,24 @@ void loop()
       }
     }
   } // publish
-#if TTYPE==1 // FREQ
-  if (analyzer->complete()) freqResp = false;
-#elif TTYPE==2 // VECT
-  if (Vcomplete()) vectoring = false;
-#elif TTYPE==3 // RAMP
-  if (Rcomplete()) vectoring = false;
-#elif TTYPE==4 // RAND
-  if (control100 && RandComplete()) vectoring = false;
-#endif
+  switch ( ttype )
+  {
+    case (1):  // FREQ 
+      if (analyzer->complete()) freqResp = false;
+      break;
+    case (2):  // VECT
+      if (Vcomplete()) vectoring = false;
+      break;
+    case (3):  // RAMP
+      if (Rcomplete()) vectoring = false;
+      break;
+    case (4):  // RAND
+      if (control100 && RandComplete()) vectoring = false;
+      break;
+  }
 }
 
 
-
-//#ifndef ARDUINO
-#ifdef TALK
 /*
   Special handler that uses built-in callback.
   SerialEvent occurs whenever a new data comes in the
@@ -776,11 +650,8 @@ void serialEvent()
     }
   }
 }
-#endif
-
 
 // Vector calculator
-#if TTYPE==2  // VECT
 double Vcalculate(const double tnow)
 {
   if ( VtnowStart_ == 0 )
@@ -816,12 +687,10 @@ void Vcomplete(const bool set)
   Vtime_ = 0;
   VtnowStart_ = 0;
 };
-#endif
 
 
 
 // Ramp calculator
-#if TTYPE==3  // RAMP
 double Rcalculate(const double tnow)
 {
   if ( RtnowStart_ == 0 )
@@ -857,10 +726,8 @@ void Rcomplete(const bool set)
   Rtime_ = 0;
   RtnowStart_ = 0;
 };
-#endif
 
 // Random calculator
-#if TTYPE==4  // RAND
 double RandCalculate(const double tnow)
 {
   if ( VtnowStart_ == 0 )
@@ -889,7 +756,6 @@ void RandComplete(const bool set)
   Vtime_ = 0;
   VtnowStart_ = 0;
 };
-#endif
 
 bool Calibrate(void)
 {
@@ -901,5 +767,187 @@ bool Calibrate(void)
     delay(50);      
   }
   return(true);
+}
+
+// Discuss things with user
+void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
+    int *buttonState, ControlLaw *CLAW, const int potThrottle)
+{
+  // Serial event  (terminate Send String data with 0A using CoolTerm)
+  double potThrottleX;
+  if (stringComplete)
+  {
+    switch ( inputString.charAt(0) )
+    {
+      case ( 'p' ):
+        plotting = !plotting;
+        break;
+      case ( 'S' ):
+        switch ( inputString.charAt(1) )
+        {
+          case ( 'd' ):
+            CLAW->Sd(inputString.substring(2).toFloat());
+            break;
+          case ( 'g' ):
+            CLAW->Sg(inputString.substring(2).toFloat());
+            break;
+          case ( 't' ):
+            CLAW->St(inputString.substring(2).toFloat());
+            break;
+        }
+        break;
+      case ( 'A' ):
+        switch ( inputString.charAt(1) )
+        {
+          case ( 'd' ):
+            CLAW->Ad(inputString.substring(2).toFloat());
+            break;
+          case ( 'g' ):
+            CLAW->Ag(inputString.substring(2).toFloat());
+            break;
+          case ( 't' ):
+            CLAW->At(inputString.substring(2).toFloat());
+            break;
+        }
+        break;
+      case ( 'f' ):
+        if ( ttype==1 ) analyzer->complete(freqResp); // reset if doing freqResp
+        freqResp = !freqResp;
+        break;
+      case ( 'V' ):
+        if ( ttype==2 ) Vcomplete(*vectoring); // reset if doing vector
+        *vectoring = !(*vectoring);
+        break;
+      case ( 'R' ):
+        if ( ttype==3 ) Rcomplete(*vectoring); // reset if doing ramp
+        *vectoring = !(*vectoring);
+        break;
+      case ( 'X' ):
+        if ( ttype==4 ) RandComplete(*vectoring); // reset if doing vector
+        *vectoring = !(*vectoring);
+        break;
+      case ( 'b' ):
+        bare = !bare;
+        break;
+      case ( 'B' ):
+        *buttonState = 1;
+        break;
+      case ( 'd' ):
+        dry = !dry;
+        break;
+      case ( 'c' ):
+        *closingLoop = !(*closingLoop);
+        break;
+      case ( 's' ):
+        *stepping = !(*stepping);
+        stepVal = -stepVal;
+        break;
+      case ( 'v' ):
+        verbose = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
+        break;
+      case ( 'P' ):
+        potThrottleX = inputString.substring(1).toFloat();
+        if (potThrottleX>=THTL_MIN && potThrottleX<=THTL_MAX)  // ignore otherwise
+        {
+          double vpotX = potThrottleX * POT_MAX / THTL_MAX;
+          *potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
+        } 
+        if (potThrottleX > -50) potOverride = true;
+        else potOverride = false;
+        break;
+      case ( 'T' ):
+        switch ( inputString.charAt(1) )
+        {
+          case ( 's' ):
+            ttype = 0;  // Step
+            break;
+          case ( 'f' ):
+            ttype = 1;  // Freq
+            break;
+          case ( 'v' ):
+            ttype = 2;  // Vect
+            break;
+          case ( 'r' ):
+            ttype = 3;  // Ramp
+            break;
+          case ( 'x' ):
+            ttype = 4;  // Random
+            break;
+          case ( 'q' ):
+            ttype = 5;  // Square at step amplitude
+            break;
+        }
+        switch (ttype)
+        {
+          case (0):
+            testOnButton = STEP;
+            break;
+          case (1):
+            testOnButton = FREQ;
+            break;
+          case (2):
+            testOnButton = VECT;
+            break;
+          case (3):
+            testOnButton = RAMP;
+            break;
+          case (4):
+            testOnButton = RAND;
+            break;
+          case (5):
+            testOnButton = SQUARE;
+            break;
+//          otherwise:
+  //          testOnButton = STEP;
+      }
+      break;
+      case ('h'):
+        Serial.print("p= "); Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [on]");
+        Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative scalar [1]");
+        Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative adder [1]");
+        Serial.print("          tld= "); Serial.print(CLAW->tldF()); Serial.println("    : PID fixed lead [0.015]");
+        Serial.print("          tld= "); Serial.print(CLAW->tlgF()); Serial.println("    : PID fixed lag [0.015]");
+        Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain scalar [1]");
+        Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain adder [1]");
+        Serial.print("St= "); Serial.print(CLAW->St());  Serial.println("    : PID lead (proportional) scalar [1]");
+        Serial.print("At= "); Serial.print(CLAW->At());  Serial.println("    : PID lead (proportional) adder [1]");
+        Serial.print("f=  "); Serial.print(freqResp);    Serial.println("    : frequency response test toggle [false]");
+        Serial.print("V=  "); Serial.print(*vectoring);  Serial.println("    : vectoring toggle [false]");
+        Serial.print("R=  "); Serial.print(*vectoring);  Serial.println("    : ramping toggle [false]");
+        Serial.print("X=  "); Serial.print(*vectoring);  Serial.println("    : random toggle [false]");
+        Serial.print("b=  "); Serial.print(bare);        Serial.println("    : bare hardware toggle [false]");
+        Serial.print("B=  "); Serial.print(*buttonState);Serial.println("    : button state toggle [false]");
+        Serial.print("d=  "); Serial.print(dry);         Serial.println("    : dry toggle no turbine [false]");
+        Serial.print("c=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [false]");
+        Serial.print("s=  "); Serial.print(*stepping);   Serial.println("    : stepping toggle [false]");
+        Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10 [0]");
+        Serial.print("P=  "); Serial.print(potThrottle); Serial.println("    : POT override, deg [when input P value>-50]");
+        Serial.print("T=  "); 
+        switch (ttype)
+        {
+          case (0):
+            Serial.print("STEP");
+            break;
+          case (1):
+            Serial.print("FREQ");
+            break;
+          case (2):
+            Serial.print("VECT");
+            break;
+          case (3):
+            Serial.print("RAMP");
+            break;
+          case (4):
+            Serial.print("RAND");
+            break;
+          case (5):
+            Serial.print("SQUARE");
+            break;
+      }
+      Serial.println("    : transient performed with button push [STEP]");
+    }
+    inputString = "";
+    stringComplete = false;
+  }
 }
 

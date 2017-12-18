@@ -23,25 +23,29 @@ extern char buffer[256];
 
 //Class ControlLaw
 ControlLaw::ControlLaw()
-    : DENS_SI_(0), dQ_(0), intState_(0), modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
-      pcnt_(0), pcntRef_(0), throttle_(0), throttleL_(0)
+    : DENS_SI_(0), ad_(0), ag_(0), at_(0), dQ_(0), intState_(0),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
+      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), st_(1), 
+      throttle_(0), throttleL_(0)
 {
   LG_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yLG);
   TLD_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yTLD);
-#if CTYPE==2  // D action
-  clawFixedL_ = new LeadLagExp(0, tldF, tlgF, -1e6, 1e6);
-#endif
+  tldF_ = fixedLead;
+  tlgF_ = fixedLag;
+  clawFixedL_ = new LeadLagExp(0, fixedLead, fixedLag, -1e6, 1e6);
   modelFilterG_ = new LeadLagExp(0, tldG, tauG, -1e6, 1e6);
   modelFilterT_ = new LeadLagExp(0, tldT, 1.00, -1e6, 1e6);
   modelFilterV_ = new LeadLagExp(0, tldV, tauF2V, -1e6, 1e6);
 }
 ControlLaw::ControlLaw(const double T, const double DENS_SI)
-    : DENS_SI_(DENS_SI), intState_(0), modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
-      pcnt_(0), pcntRef_(0), throttle_(0), throttleL_(0)
+    : DENS_SI_(DENS_SI), ad_(0), ag_(0), at_(0), intState_(0),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
+      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), st_(1), 
+      throttle_(0), throttleL_(0)
 {
-#if CTYPE==2  // D action
-  clawFixedL_ = new LeadLagExp(T, tldF, tlgF, -1e6, 1e6);
-#endif
+  tldF_ = fixedLead;
+  tlgF_ = fixedLag;
+  clawFixedL_ = new LeadLagExp(T, tldF_, tlgF_, -1e6, 1e6);
   dQ_ = DCPDL * DENS_SI_ * D_SI * D_SI * AREA_SI * 3.1415926 / 240 / LAMBDA * NM_2_FTLBF;
   LG_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yLG);
   TLD_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yTLD);
@@ -89,15 +93,13 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   // Control Law
   e_ = pcntRef_ - pcnt_;
   double ec = e_;
-  Ki_ = LG_T_->interp(pcnt_);                        // r/s
-  Kp_ = TLD_T_->interp(pcnt_) * Ki_;                  // %Ng/%Nf=1
+  Ki_ = LG_T_->interp(pcnt_)*sg_+ag_;                         // r/s
+  Kp_ = (TLD_T_->interp(pcnt_)*st_+at_) * Ki_;                // %Ng/%Nf=1
   double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P; // Rate normalizer, %Ng/deg
   double riMax = RATE_MAX * dNdT;
 
 // PID
-#if CTYPE==2  // D, overwrite ec with fixed lead lag output
-  ec = clawFixedL_->calculate(e_, RESET, updateTime);
-#endif
+  ec = clawFixedL_->calculate(e_, RESET, updateTime, tlgF_, tldF_*sd_+ad_ );
   p_ = fmax(fmin(Kp_ * ec, NG_MAX), -NG_MAX);
   intState_ = fmax(fmin(intState_ + updateTime * fmax(fmin(Ki_ * ec, 0.5 * riMax), -0.5 * riMax), NG_MAX), -NG_MAX);
   double pcngCL = fmax(fmin(intState_ + p_, NG_MAX), ngmin);

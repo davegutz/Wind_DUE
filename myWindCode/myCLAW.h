@@ -3,19 +3,8 @@
 
 #include "myTables.h"
 #include "myFilters.h"
-#define CTYPE 1   // 0=P+I, 1=I, 2=PID
 #define KIT   2    // -1=Photon, 0-5 = Arduino
-
-
-#if   CTYPE==0  // P+I
-#include "myPI.h"
-#elif CTYPE==1  // I
 #include "myI.h"
-#elif CTYPE==2  // PID
-#include "myPID.h"
-#else
-#error "Unknown CTYPE="
-#endif
 
 
 // Plant
@@ -135,6 +124,20 @@ public:
   double p(void) { return (p_); };
   double pcnt(void) { return (pcnt_); };
   double pcntRef(void) { return (pcntRef_); };
+  double Sd(void) { return(sd_);};
+  double Sg(void) { return(sg_);};
+  double St(void) { return(st_);};
+  double Ad(void) { return(ad_);};
+  double Ag(void) { return(ag_);};
+  double At(void) { return(at_);};
+  double tldF(void) { return(tldF_);};
+  double tlgF(void) { return(tlgF_);};
+  void Sd(const double S) { sd_ = S; };
+  void Sg(const double S) { sg_ = S; };
+  void St(const double S) { st_ = S; };
+  void Ad(const double A) { ad_ = A; };
+  void Ag(const double A) { ag_ = A; };
+  void At(const double A) { at_ = A; };
 private:
   double throttleLims(const int RESET, const double updateTime, const boolean closingLoop,
                   const boolean freqResp, const boolean vectoring, const double exciter, const double freqRespScalar,
@@ -146,6 +149,9 @@ private:
   TableInterp1Dclip *LG_T_;  // Gain schedule lead time constant, s
   TableInterp1Dclip *TLD_T_; // Gain schedule loop gain, r/s
   double DENS_SI_;           // Air density, kg/m^3
+  double ad_;                // Derivative lookup adder
+  double ag_;                // Integral lookup adder
+  double at_;                // Proportional lookup adder
   double dQ_;                // Precalculated coefficient, N-m/rpm/(m/s)
   double e_;                 // Closed loop error, %Nt
   double intState_;          // PI control integrate state, deg
@@ -158,12 +164,15 @@ private:
   double p_;                 // Prop path, %Nt
   double pcnt_;              // Turbine speed, %
   double pcntRef_;           // Turbine speed closed loop reference, %Nt
+  double sd_;                // Derivative lookup scalar
+  double sg_;                // Integral lookup scalar
+  double st_;                // Proportional lookup scalar
   double throttle_;          // Final value sent to hardware and model, deg
   double throttleL_;         // Limited servo value, 0-179 degrees
   double throttleCL_;        // Closed loop throttle output, deg
-#ifdef USE_FIXED_LL
+  double tldF_;              // Fixed lead, sec
+  double tlgF_;              // Fixed lag, sec
   LeadLagExp *clawFixedL_;   // Exponential control fixed lead lag
-#endif
 };
 
 #endif
