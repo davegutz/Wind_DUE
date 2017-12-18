@@ -41,10 +41,11 @@ SYSTEM_THREAD(ENABLED); // Make sure code always run regardless of network statu
 // in myClaw.h  #define KIT   1   // -1=Photon, 0-4 = Arduino
 #define TTYPE 0          // 0=STEP, 1=FREQ, 2=VECT, 3=RAMP (ramp is open loop only), 4=RAND
 //#define CALIBRATING         // Use this to port converted v4 to the vpot serial signal for calibration
-int     verbose = 0;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
+int     verbose = 2;     // [2] Debug, as much as you can tolerate.   For TALK set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "b"
 bool    dry = false;    // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For TALK set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
+bool    plotting = true;    // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
 
 #if TTYPE==0  // STEP
 testType testOnButton = STEP;
@@ -311,6 +312,7 @@ void setup()
   pinMode(POWER_EN_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT);
   Serial.begin(115200);
+  SerialUSB.begin(115200);
   myservo.attach(PWM_PIN, 1000, 2000); // attaches the servo.  Only supported on pins that have PWM
   pinMode(POT_PIN, INPUT);
   pinMode(F2V_PIN, INPUT);
@@ -527,6 +529,9 @@ void loop()
   {
     switch ( inputString.charAt(0) )
     {
+      case ( 'p' ):
+        plotting = !plotting;
+        break;
       case ( 'S' ):
         switch ( inputString.charAt(1) )
         {
@@ -676,6 +681,16 @@ void loop()
   // Publish results to serial bus
   if (publish)
   {
+    if ( plotting )
+    {
+      SerialUSB.print(CLAW->pcntRef());SerialUSB.print(",");
+      SerialUSB.print(CLAW->pcnt());   SerialUSB.print(",");
+      SerialUSB.print(CLAW->modelTS());SerialUSB.print(",");
+      SerialUSB.print(CLAW->modelG()); SerialUSB.print(",");
+      SerialUSB.print(throttle/1.8);   SerialUSB.print(",");
+//      SerialUSB.print("100,-25,");
+      SerialUSB.println("");
+    }
     if (freqResp)
     {
       if (verbose > 1 || (testOnButton==STEP  && verbose>0) )
@@ -697,16 +712,16 @@ void loop()
     } // freqResp
     else
     {
-    sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+      sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
       if (verbose > 0)
       {
         Serial.print(elapsedTime, 6);Serial.print(",");
         Serial.print(mode, DEC);Serial.print(", ");
-#ifdef CALIBRATING
-        Serial.print(vf2v, 3);Serial.print(",");
-#else
-        Serial.print(vpot, 3);Serial.print(",  ");
-#endif
+        #ifdef CALIBRATING
+          Serial.print(vf2v, 3);Serial.print(",");
+        #else
+          Serial.print(vpot, 3);Serial.print(",  ");
+        #endif
         Serial.print(CLAW->pcntRef(), DEC);Serial.print(",");
         sprintf(buffer, "%s,", String(CLAW->pcnt()).c_str()); Serial.print(buffer);
         Serial.print(CLAW->modelTS(), DEC);Serial.print(",");
