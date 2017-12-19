@@ -125,6 +125,7 @@ public:
   double p(void) { return (p_); };
   double pcnt(void) { return (pcnt_); };
   double pcntRef(void) { return (pcntRef_); };
+  int    throttle(void) { return (throttle_); };
   double Sd(void) { return(sd_);};
   double Sg(void) { return(sg_);};
   double St(void) { return(st_);};
