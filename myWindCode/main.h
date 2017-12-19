@@ -277,6 +277,7 @@ void setup()
   pinMode(POWER_IN_PIN, INPUT);
   pinMode(POWER_EN_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(115200);
   SerialUSB.begin(115200);
   myservo.attach(PWM_PIN, 1000, 2000); // attaches the servo.  Only supported on pins that have PWM
@@ -361,10 +362,10 @@ void loop()
   static unsigned long start = 0UL;       // Time to start looping, micros
   double elapsedTime;                     // elapsed time, micros
   static double updateTime = 0.0;         // Control law update time, sec
-  static unsigned long lastControl = 0UL; // Last control law time, micros
-  static unsigned long lastPublish = 0UL; // Last publish time, micros
-  static unsigned long lastControl10 = 0UL;    // Last control 10T time, micros
-  static unsigned long lastControl100 = 0UL;    // Last control 100T time, micros
+  static unsigned long lastControl = 0UL;    // Last control law time, micros
+  static unsigned long lastPublish = 0UL;    // Last publish time, micros
+  static unsigned long lastControl10 = 0UL;  // Last control 10T time, micros
+  static unsigned long lastControl100 = 0UL; // Last control 100T time, micros
   static unsigned long lastControlSquare = 0UL;    // Last control square wave time, micros
 #ifdef ARDUINO
   static unsigned long lastButton = 0UL;  // Last button push time, micros
@@ -376,6 +377,7 @@ void loop()
   static double exciter = 0;              // Frequency response excitation, fraction
                                           ////////////////////////////////////////////////////////////////////////////////////
   static double vf2v = 0;                 // Converted sensed back emf LM2907 circuit measure, volts
+  static double vf2v_filt = 0;            // Filtered f2v value, volts
   static double vpot_filt = 0;            // Pot value, volts
   static double vpotDead = 0;             // Sliding deadband value, volts
   static double vpot = 0;                 // Pot value, volts
@@ -491,10 +493,13 @@ void loop()
   // Interrogate analog inputs
   if (control)
   {
+    if (!bare)
+    {
+      f2vValue = analogRead(F2V_PIN);
+    }
     if (!bare && !potOverride)
     {
       potValue = analogRead(POT_PIN);
-      f2vValue = analogRead(F2V_PIN);
     }
     vf2v = double(f2vValue) / INSCALE * F2V_MAX;
     vpot = fmin(fmax((double(potValue) / INSCALE * POT_MAX - POT_BIA) / POT_SCL, POT_MIN), POT_MAX);
@@ -514,9 +519,6 @@ void loop()
     if (elapsedTime > RESEThold)
       RESET = 0;
   }
-  if ( control100)
-  {
-  }
 
   // Commands to Hardware
   if ( control )
@@ -532,16 +534,26 @@ void loop()
       else if ( calComplete )
       {
         bool freeze = ThrottleHold->calculate(!calComplete, calComplete && potThrottle<=5);
-        if ( freeze ) myservo.write(0);
-        else myservo.write(throttle);
+        if ( freeze )
+        {
+          myservo.write(0);
+          digitalWrite(LED_BUILTIN, HIGH);
+        }
+        else
+        {
+          myservo.write(throttle);
+          digitalWrite(LED_BUILTIN, LOW);
+        }
       }
       if ( powerEnable )  digitalWrite(POWER_EN_PIN, HIGH);
       else digitalWrite(POWER_EN_PIN, LOW);
     }
-    else  // Terminate hardware outputs for safety reasons.
+    else  // Terminate hardware outputs for safety
     {
       myservo.write(0);
       digitalWrite(POWER_EN_PIN, LOW);
+      calComplete = false;
+      ThrottleHold->calculate(!calComplete, false); 
     }
   }
 
@@ -844,6 +856,14 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
             Serial.print(inputString); Serial.println(" unknown");
         }
         break;
+      case ('H'):
+        #ifdef CALIBRATING
+          sprintf(buffer, "\ntime,mode,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+        #else
+          sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+        #endif
+        Serial.print(buffer);
+        break;
       case ('h'): 
         Serial.print("Using KIT# ");  Serial.println(KIT);
         Serial.print("Calibration complete status="); Serial.print(calComplete);
@@ -889,6 +909,7 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
       Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
       Serial.print("          :   stepVal="); Serial.println(*stepVal);
       Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
+      Serial.print("MODE="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
     }
     inputString = "";
     stringComplete = false;
