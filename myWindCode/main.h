@@ -415,7 +415,7 @@ void loop()
   if (controlSquare)
   {
     lastControlSquare = now;
-    if ( testOnButton==SQUARE ) stepVal = -stepVal;
+    if ( testOnButton==SQUARE ) softButton = true;
   }
   if (!bare)
   {
