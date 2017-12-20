@@ -1,10 +1,5 @@
 // Standard
-#ifdef ARDUINO
 #include <Arduino.h> //needed for Serial.println
-#else
-#include "application.h" // Should not be needed if file .ino or Arduino
-#endif
-
 #include "myAnalyzer.h"
 #include "math.h"
 
@@ -351,3 +346,4 @@ void myVector::complete(const bool set)
   time_ = 0;
   tnowStart_ = 0;
 };
+

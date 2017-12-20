@@ -3,27 +3,17 @@
 //
 
 // Standard
-#ifdef ARDUINO
 #include <Servo.h>
 #include <Arduino.h>     // Used instead of Print.h - breaks Serial
-  #ifdef __AVR_ATmega328P__
+#ifdef __AVR_ATmega328P__
   #define UNO
-  #endif
-  #ifdef __AVR_ATmega2560__
+#endif
+#ifdef __AVR_ATmega2560__
   #define MEGA
-  #endif
-  #ifdef __SAM3X8E__
+#endif
+#ifdef __SAM3X8E__
   #define DUE
-  #endif
-#else                    // Photon
-#define PHOTON
-#include "application.h" // Should not be needed if file ino or Arduino
-#ifdef PARTICLE
-#include <Particle.h>     // Needed for CLI standalone
 #endif
-SYSTEM_THREAD(ENABLED); // Make sure code always run regardless of network status
-#endif
-
 
 #include "myAnalyzer.h"
 #include "myTables.h"
@@ -44,38 +34,6 @@ bool    plotting = true; // [false] This is for Serial Plotter compatible output
 /*
 Controlling a servo position using a potentiometer (variable resistor)
 by Dave Gutz
-
-Connections for Photon:
-  ESC ------------------- Photon
-    BLK ------------------- GND
-    WHT ------------------- PWM Output (A4)
-  ESC----------------- 3-wire DC Servomotor
-    Any three to any three
-  DPST switch-------------Photon
-    GND-------------------D4
-  DPST switch
-    HI--------------------3.3V
-    LO--------------------10K to GND
-  Push button-------------Photon
-      R---------------------D2
-    Push button
-      HI--------------------3.3V
-      LO--------------------10K to GND
-  F2V---------------------Photon
-    V5/V10----------------Analog In A2
-    GND-------------------GND
-  POT---------------------Photon
-    VHI ------------------3.3v
-    VLO ------------------GND
-    WIPE -----------------Analog In A0
-  LED to indicate frequency response----Digital Output (D7)
-  Hardware Platform:
-    Microcontroller:  Particle Photon
-    ESC:Turnigy Plush 25A, 2-4S LiPo
-    Power Supply:  BINZET AC 100-240V to DC 12V 10A
-    Potentiometer:  Mouser 314-1410F-10K-3  10K Linear Pot
-    Motor:  Hobby King 50mm Alloy EDF 4800 Kv (3s Version)
-    F2V:  Texas Instruments 926-LM2907N/NOPB (14 pin, no Zener)
 
 
 Connections for Arduino:
@@ -158,7 +116,6 @@ Connections for Arduino:
 
 // Constants always defined
 // #define CONSTANT
-#ifdef ARDUINO
 #define POWER_IN_PIN 6                                          // Read level of power on/off (D6)
 #define POWER_EN_PIN 3                                          // Write power enable discrete (D3)
 #define BUTTON_PIN 2                                           // Button 3-way input momentary 3.3V, steady GND (D2)
@@ -173,20 +130,7 @@ const double POT_MAX = 3.3;                                    // Maximum POT va
 const double F2V_MAX = 3.3;                                    // Maximum F2V value, vdc
 const double POT_BIA = 0.10 + vpotHalfDB;                      // Pot adder, vdc.   0.1 is observed vpot+  min with 3.3/1023
 const double POT_SCL = (3.1 - vpotHalfDB - POT_BIA) / POT_MAX; // Pot scalar, vdc.   3.1 is observed vpot- max with 3.3/1023
-#else                                                          // Photon
-#define BUTTON_PIN D2                                          // Button 3-way input momentary 3.3V, steady GND (D2)
-#define PWM_PIN A4                                             // PWM output (A4)
-#define POT_PIN A0                                             // Potentiometer input pin on Photon (A0)
-#define F2V_PIN A2                                             // Fan speed back-emf input pin on Photon (A2)
-#define CL_PIN D0                                              // Closed loop 3-way switch 3.3V or GND  (D0)
-#define CLOCK_TCK 8UL                                          // Clock tick resolution, micros
-#define INSCALE 1023.0                                         // Input full range from OS
-const double vpotHalfDB = 0.0;                    // Half deadband sliding deadband filter, volts
-const double POT_MAX = 3.3;                       // Maximum POT value, vdc
-const double F2V_MAX = 3.45;                      // Maximum F2V value, vdc
-const double POT_BIA = 0.0;                       // Pot adder, vdc
-const double POT_SCL = (3.3 - POT_BIA) / POT_MAX; // Pot scalar, vdc
-#endif
+
 //********constants for all*******************
 #ifdef CALIBRATING
 #define PUBLISH_DELAY 150000UL      // Time between cloud updates (), micros
@@ -331,13 +275,7 @@ void setup()
   PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
   EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
   ThrottleHold  = new SRLatch(true);
-#ifdef ARDUINO
   delay(100);
-#else
-  delay(1000);
-  WiFi.off();
-  delay(1000);
-#endif
 }
 
 void loop()
@@ -367,10 +305,8 @@ void loop()
   static unsigned long lastControl10 = 0UL;  // Last control 10T time, micros
   static unsigned long lastControl100 = 0UL; // Last control 100T time, micros
   static unsigned long lastControlSquare = 0UL;    // Last control square wave time, micros
-#ifdef ARDUINO
   static unsigned long lastButton = 0UL;  // Last button push time, micros
   static unsigned long lastFR = 0UL;      // Last analyzing, micros
-#endif
   static int mode = 0;                    // Mode of operation First digit: bare, Second digit:  closingLoop, Third digit: testOnButton, Fourth digit:  analyzing
   static int RESET = 1;                   // Dynamic reset
   const double RESEThold = 5;             // RESET hold, s
@@ -533,7 +469,7 @@ void loop()
       if ( calibrate ) calComplete = Calibrate();
       else if ( calComplete )
       {
-        bool freeze = ThrottleHold->calculate(!calComplete, calComplete && potThrottle<=5);
+        bool freeze = ThrottleHold->calculate(!calComplete, calComplete && potThrottle<2);
         if ( freeze )
         {
           myservo.write(0);
@@ -915,4 +851,5 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
     stringComplete = false;
   }
 }
+
 

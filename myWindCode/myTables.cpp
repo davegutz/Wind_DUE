@@ -1,8 +1,4 @@
-#ifdef ARDUINO
 #include <Arduino.h> //needed for Serial.println
-#else
-#include "application.h" // Should not be needed if file .ino or Arduino
-#endif
 #include "myTables.h"
 #include "math.h"
 
@@ -274,3 +270,4 @@ static double  vTbl[24]  =
     sizeof(xTbl)/sizeof(double),
     sizeof(yTbl)/sizeof(double)) * 100. / 4.7;
 */
+

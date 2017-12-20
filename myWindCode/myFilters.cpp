@@ -535,3 +535,4 @@ void LagTustin::assignCoeff(double tau)
   b_ = (2.0 * tau_ - T_) / (2.0 * tau_ + T_);
 }
 double LagTustin::state(void) { return (state_); };
+

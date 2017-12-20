@@ -1,11 +1,5 @@
-
 // Standard
-#ifdef ARDUINO
 #include <Arduino.h> //needed for Serial.println
-#else
-#include "application.h" // Should not be needed if file .ino or Arduino
-#endif
-
 #include "myCLAW.h"
 #include "math.h"
 
@@ -166,3 +160,4 @@ void ControlLaw::model(const double throttle, const int RESET, const double upda
   modelT_ = modelFilterT_->calculate((P_NGALL_NT[0] + modelG_ * RPM_P * P_NGALL_NT[1]) / RPM_P, RESET, updateTime, tauT, tldT);
   modelTS_ = modelFilterV_->calculate(modelT_, RESET);
 }
+
