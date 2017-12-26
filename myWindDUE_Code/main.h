@@ -11,6 +11,9 @@
 #ifdef __AVR_ATmega2560__
   #define MEGA
 #endif
+#ifdef __AVR_ATmega2561__
+  #define MEGA
+#endif
 #ifdef __SAM3X8E__
   #define DUE
 #endif
@@ -223,7 +226,9 @@ void setup()
   pinMode(BUTTON_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   Serial.begin(115200);
-  SerialUSB.begin(115200);
+  #ifdef DUE
+    SerialUSB.begin(115200);
+  #endif
   myservo.attach(PWM_PIN, 1000, 2000); // attaches the servo.  Only supported on pins that have PWM
   pinMode(POT_PIN, INPUT);
   pinMode(F2V_PIN, INPUT);
@@ -520,6 +525,7 @@ void loop()
   // Publish results to serial bus
   if (publish)
   {
+    #ifdef DUE
     if ( plotting )
     {
       SerialUSB.print(CLAW->pcntRef());SerialUSB.print(",");
@@ -530,6 +536,7 @@ void loop()
       SerialUSB.print(throttle/1.8);   SerialUSB.print(",");
       SerialUSB.println("");
     }
+    #endif
     if (freqResp)
     {
       if (verbose > 1 || (testOnButton==STEP  && verbose>0) )
@@ -841,11 +848,21 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
           case (SQUARE):
             Serial.print("q");
             break;
-      }
-      Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
-      Serial.print("          :   stepVal="); Serial.println(*stepVal);
-      Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
-      Serial.print("MODE="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
+        }
+        Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
+        Serial.print("          :   stepVal="); Serial.println(*stepVal);
+        Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
+        Serial.print("Using KIT# ");  Serial.println(KIT);
+        Serial.print("Calibration complete status="); Serial.print(calComplete);
+        Serial.print(", vectoring="); Serial.print(*vectoring);
+        Serial.print(", stepping=");  Serial.print(*stepping);
+        Serial.print(", analyzing="); Serial.println(analyzing);
+        Serial.print("MODE="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
+        break;
+      case ('a', 'c', 'd', 'E', 'e', 'F', 'f', 'G', 'g', 'I', 'i', 'J', 'j', 'K', 'k', 'L',
+            'l', 'M', 'm', 'N', 'n', 'O', 'o', 'Q', 'q', 'R', 'r', 's', 't', 'U', 'u', 'V',
+            'W', 'w', 'X', 'x', 'Y', 'y', 'Z', 'z'):
+        Serial.print(inputString.charAt(0)); Serial.println(" unknown");
     }
     inputString = "";
     stringComplete = false;
