@@ -128,8 +128,6 @@ Connections for Arduino:
 const double vpotHalfDB = 0.0;                                 // Half deadband sliding deadband filter, volts
 const double POT_MAX = 3.3;                                    // Maximum POT value, vdc
 const double F2V_MAX = 3.3;                                    // Maximum F2V value, vdc
-const double POT_BIA = 0.10 + vpotHalfDB;                      // Pot adder, vdc.   0.1 is observed vpot+  min with 3.3/1023
-const double POT_SCL = (3.1 - vpotHalfDB - POT_BIA) / POT_MAX; // Pot scalar, vdc.   3.1 is observed vpot- max with 3.3/1023
 
 //********constants for all*******************
 #ifdef CALIBRATING
@@ -142,8 +140,10 @@ const double POT_SCL = (3.1 - vpotHalfDB - POT_BIA) / POT_MAX; // Pot scalar, vd
 #define CONTROL_100_DELAY CONTROL_DELAY*100UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
-const double POT_MIN = 0;     // Minimum POT value, vdc
+const double POT_MIN = 0.5;     // Minimum POT value, vdc
 const double DENS_SI = 1.225; // Air density, kg/m^3
+const double POT_BIA = POT_MIN + vpotHalfDB;                    // Pot adder, vdc.   0.1 is observed vpot+  min with 3.3/1023
+const double POT_SCL = (3.1 - vpotHalfDB - POT_BIA) / POT_MAX; // Pot scalar, vdc.   3.1 is observed vpot- max with 3.3/1023
 
 // Test
 testType testOnButton = STEP;
@@ -438,7 +438,7 @@ void loop()
       potValue = analogRead(POT_PIN);
     }
     vf2v = double(f2vValue) / INSCALE * F2V_MAX;
-    vpot = fmin(fmax((double(potValue) / INSCALE * POT_MAX - POT_BIA) / POT_SCL, POT_MIN), POT_MAX);
+    vpot = fmin(fmax((double(potValue) / INSCALE * POT_MAX - POT_BIA) / POT_SCL, 0), POT_MAX);
   }
 
   // Control law
