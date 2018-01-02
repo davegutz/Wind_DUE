@@ -225,6 +225,7 @@ void setup()
   pinMode(POWER_EN_PIN, OUTPUT);
   pinMode(BUTTON_PIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
+  analogWriteResolution(12);   // 4096 scaling, 255 if comment this out
   Serial.begin(115200);
   #ifdef DUE
     SerialUSB.begin(115200);
@@ -496,6 +497,15 @@ void loop()
       calComplete = false;
       ThrottleHold->calculate(!calComplete, false); 
     }
+    if (closingLoop && powered)
+    {
+      analogWrite(DAC0, (CLAW->pcntRef()   +50)*4095/200);
+    }
+    else
+    {
+      analogWrite(DAC0, (CLAW->modelTS()   +50)*4095/200);
+    }
+    analogWrite(  DAC1, (throttle          +0 )*4095/200);
   }
 
   // Calculate frequency response
@@ -699,6 +709,14 @@ bool Calibrate(void)
 }
 
 // Discuss things with user
+
+// Talk Declarations
+void talkT(bool *stepping, double *stepVal, unsigned long *squareDelay );  // Transient Inputs
+void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,  // Help
+    bool *softButton, ControlLaw *CLAW, const int potThrottle, const bool calComplete, const bool analyzing,
+    double *stepVal, unsigned long *squareDelay );
+
+// Talk Executive
 void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
     bool *softButton, ControlLaw *CLAW, const int potThrottle, const bool calComplete, const bool analyzing,
     double *stepVal, unsigned long *squareDelay )
@@ -769,104 +787,117 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
         else potOverride = false;
         break;
       case ( 'T' ):
-        *stepping = false;
-        switch ( inputString.charAt(1) )
-        {
-          case ( 's' ): 
-            *stepping = true;
-            testOnButton = STEP;
-            if ( inputString.substring(2).length() )
-              *stepVal = fabs(inputString.substring(2).toFloat());
-            break;
-          case ( 'f' ):
-            testOnButton = FREQ;
-            break;
-          case ( 'v' ):
-            testOnButton = VECT;
-            VectReset(false);
-            break;
-          case ( 'r' ):
-            testOnButton = RAMP;
-            RampReset(false);
-            break;
-          case ( 'q' ):
-            testOnButton = SQUARE;
-            *stepping = true;
-            if ( inputString.substring(2).length() )
-              *squareDelay = fabs(inputString.substring(2).toInt());
-            break;
-          otherwise:
-            Serial.print(inputString); Serial.println(" unknown");
-        }
+        talkT(stepping, stepVal, squareDelay);
         break;
-      case ('H'):
+      case ('H'):  // Headers
         #ifdef CALIBRATING
-          sprintf(buffer, "\ntime,mode,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+          sprintf(buffer, "\nMONITOR:  time,mode,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
         #else
-          sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+          sprintf(buffer, "\nMONITOR:  time,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
         #endif
+        Serial.print(buffer);
+        sprintf(buffer, "PLOTTING:  NtRef(blue), Nts(red), NtsM(green), NgM(orange), throttleU/1.8(magenta), throttle/1.8(olive)\n");
         Serial.print(buffer);
         break;
       case ('h'): 
-        Serial.print("Using KIT# ");  Serial.println(KIT);
-        Serial.print("Calibration complete status="); Serial.print(calComplete);
-        Serial.print(", vectoring="); Serial.print(*vectoring);
-        Serial.print(", stepping=");  Serial.print(*stepping);
-        Serial.print(", analyzing="); Serial.println(analyzing);
-        Serial.print("P= ");  Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [1]");
-        Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative scalar [1]");
-        Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative adder [0]");
-        Serial.print("          tld= "); Serial.print(CLAW->tldF(),3); Serial.println("    : PID fixed lead [0.015]");
-        Serial.print("          tld= "); Serial.print(CLAW->tlgF(),3); Serial.println("    : PID fixed lag [0.015]");
-        Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain (integral) scalar [1]");
-        Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain (integral) adder [0]");
-        Serial.print("          LG= "); Serial.print(CLAW->LG()); Serial.println("    : PID loop gain, r/s [various]");
-        Serial.print("St= "); Serial.print(CLAW->St());  Serial.println("    : PID lead (proportional) scalar [1]");
-        Serial.print("At="); Serial.print(CLAW->At());  Serial.println("    : PID lead (proportional) adder [0]");
-        Serial.print("          TLD= "); Serial.print(CLAW->TLD()); Serial.println("    : PID TLD, sec [various]");
-        Serial.print("B=  "); Serial.print(bare);        Serial.println("    : bare hardware toggle [0]");
-        Serial.print("b=  "); Serial.print(*softButton);Serial.println("    : button state toggle [0]");
-        Serial.print("D=  "); Serial.print(dry);         Serial.println("    : dry toggle no turbine [0]");
-        Serial.print("C=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [0].   Will over-ride a failed open switch.");
-        Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10. 2 for save csv [0]");
-        Serial.print("p=  "); Serial.print(potThrottle); Serial.println("    : POT override, deg [when input P value>-50]");
-        Serial.print("T<?>=  "); 
-        switch (testOnButton)
-        {
-          case (STEP):
-            Serial.print("s");
-            break;
-          case (FREQ):
-            Serial.print("f");
-            break;
-          case (VECT):
-            Serial.print("v");
-            break;
-          case (RAMP):
-            Serial.print("r");
-            break;
-          case (SQUARE):
-            Serial.print("q");
-            break;
-        }
-        Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
-        Serial.print("          :   stepVal="); Serial.println(*stepVal);
-        Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
-        Serial.print("Using KIT# ");  Serial.println(KIT);
-        Serial.print("Calibration complete status="); Serial.print(calComplete);
-        Serial.print(", vectoring="); Serial.print(*vectoring);
-        Serial.print(", stepping=");  Serial.print(*stepping);
-        Serial.print(", analyzing="); Serial.println(analyzing);
-        Serial.print("MODE="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
+        talkh(vectoring, closingLoop, stepping, potValue, softButton, CLAW, potThrottle, calComplete, analyzing, stepVal, squareDelay);
         break;
-      case ('a', 'c', 'd', 'E', 'e', 'F', 'f', 'G', 'g', 'I', 'i', 'J', 'j', 'K', 'k', 'L',
-            'l', 'M', 'm', 'N', 'n', 'O', 'o', 'Q', 'q', 'R', 'r', 's', 't', 'U', 'u', 'V',
-            'W', 'w', 'X', 'x', 'Y', 'y', 'Z', 'z'):
+      default:
         Serial.print(inputString.charAt(0)); Serial.println(" unknown");
+        break;
     }
     inputString = "";
     stringComplete = false;
   }
 }
 
+// Talk Tranient Input Settings
+void talkT(bool *stepping, double *stepVal, unsigned long *squareDelay )
+{
+  *stepping = false;
+  switch ( inputString.charAt(1) )
+  {
+    case ( 's' ): 
+      *stepping = true;
+      testOnButton = STEP;
+      if ( inputString.substring(2).length() )
+        *stepVal = fabs(inputString.substring(2).toFloat());
+      break;
+    case ( 'f' ):
+      testOnButton = FREQ;
+      break;
+    case ( 'v' ):
+      testOnButton = VECT;
+      VectReset(false);
+      break;
+    case ( 'r' ):
+      testOnButton = RAMP;
+      RampReset(false);
+      break;
+    case ( 'q' ):
+      testOnButton = SQUARE;
+      *stepping = true;
+      if ( inputString.substring(2).length() )
+        *squareDelay = fabs(inputString.substring(2).toInt());
+      break;
+    default:
+      Serial.print(inputString); Serial.println(" unknown.  Try typing 'h'");
+  }
+}
 
+// Talk Help
+void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
+    bool *softButton, ControlLaw *CLAW, const int potThrottle, const bool calComplete, const bool analyzing,
+    double *stepVal, unsigned long *squareDelay )
+{
+  Serial.print("Using KIT# ");  Serial.println(KIT);
+  Serial.print("P= ");  Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [1]");
+  Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative tlead scalar [1]");
+  Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative tlead adder [0]");
+  Serial.print("Sl= "); Serial.print(CLAW->Sl());  Serial.println("    : PID derivative tlag scalar [1]");
+  Serial.print("Al= "); Serial.print(CLAW->Al());  Serial.println("    : PID derivative tlag adder [0]");
+  Serial.print("   ref:   tld= "); Serial.print(CLAW->tldF(),3); Serial.println("    : present PID fixed lead");
+  Serial.print("   ref:   tlg= "); Serial.print(CLAW->tlgF(),3); Serial.println("    : present PID fixed lag");
+  Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain (integral) scalar [1]");
+  Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain (integral) adder [0]");
+  Serial.print("          LG= "); Serial.print(CLAW->LG()); Serial.println("    : PID loop gain, r/s [various]");
+  Serial.print("St= "); Serial.print(CLAW->St());  Serial.println("    : PID lead (proportional) tlead scalar [1]");
+  Serial.print("At="); Serial.print(CLAW->At());  Serial.println("    : PID lead (proportional) tlead adder [0]");
+  Serial.print("          TLD= "); Serial.print(CLAW->TLD()); Serial.println("    : PID TLD, sec [various]");
+  Serial.print("B=  "); Serial.print(bare);        Serial.println("    : bare hardware toggle [0]");
+  Serial.print("b=  "); Serial.print(*softButton);Serial.println("    : button state toggle [0]");
+  Serial.print("D=  "); Serial.print(dry);         Serial.println("    : dry toggle no turbine [0]");
+  Serial.print("C=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [0].   Will over-ride a failed open switch.");
+  Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10. 2 for save csv [0]");
+  Serial.print("P=  "); Serial.print(plotting);    Serial.println("    : streaming to U.   Toggle to pause plots [1]");
+  Serial.print("p=  "); Serial.print(potThrottle); Serial.println("    : POT override, deg [when input P value>-50]");
+  Serial.print("T<?>=  "); 
+  switch (testOnButton)
+  {
+    case (STEP):
+      Serial.print("s");
+      break;
+    case (FREQ):
+      Serial.print("f");
+      break;
+    case (VECT):
+      Serial.print("v");
+      break;
+    case (RAMP):
+      Serial.print("r");
+      break;
+    case (SQUARE):
+      Serial.print("q");
+      break;
+  }
+  Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
+  Serial.print("          :   stepVal="); Serial.println(*stepVal);
+  Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
+  Serial.print("Using KIT# ");  Serial.println(KIT);
+  Serial.print("Calibration complete status="); Serial.print(calComplete);
+  Serial.print(", vectoring="); Serial.print(*vectoring);
+  Serial.print(", stepping=");  Serial.print(*stepping);
+  Serial.print(", analyzing="); Serial.println(analyzing);
+  Serial.print("MODE[bare|closingLoop|testOnButton|analyzing]="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
+}
+    

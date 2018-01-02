@@ -126,11 +126,13 @@ public:
   double pcnt(void) { return (pcnt_); };
   double pcntRef(void) { return (pcntRef_); };
   int    throttle(void) { return (throttle_); };
-  double Sd(void) { return(sd_);};
-  double Sg(void) { return(sg_);};
-  double St(void) { return(st_);};
-  double Ad(void) { return(ad_);};
+  double Sd(void) { return(sd_);};  // Der Tld scalar
+  double Sg(void) { return(sg_);};  // Gain scalar
+  double Sl(void) { return(sl_);};  // Der Tlg scalar
+  double St(void) { return(st_);};  // Prop Tld scalar
+  double Ad(void) { return(ad_);}; 
   double Ag(void) { return(ag_);};
+  double Al(void) { return(al_);}; 
   double At(void) { return(at_);};
   double tldF(void) { return(tldF_);};
   double tlgF(void) { return(tlgF_);};
@@ -138,9 +140,11 @@ public:
   double TLD(void) { return(Kp_/Ki_);};
   void Sd(const double S) { sd_ = S; };
   void Sg(const double S) { sg_ = S; };
+  void Sl(const double S) { sl_ = S; };
   void St(const double S) { st_ = S; };
   void Ad(const double A) { ad_ = A; };
   void Ag(const double A) { ag_ = A; };
+  void Al(const double A) { al_ = A; };
   void At(const double A) { at_ = A; };
 private:
   double throttleLims(const int RESET, const double updateTime, const boolean closingLoop,
@@ -153,8 +157,9 @@ private:
   TableInterp1Dclip *LG_T_;  // Gain schedule lead time constant, s
   TableInterp1Dclip *TLD_T_; // Gain schedule loop gain, r/s
   double DENS_SI_;           // Air density, kg/m^3
-  double ad_;                // Derivative lookup adder
+  double ad_;                // Derivative tlead adder
   double ag_;                // Integral lookup adder
+  double al_;                // Derivative tlag adder
   double at_;                // Proportional lookup adder
   double dQ_;                // Precalculated coefficient, N-m/rpm/(m/s)
   double e_;                 // Closed loop error, %Nt
@@ -168,8 +173,9 @@ private:
   double p_;                 // Prop path, %Nt
   double pcnt_;              // Turbine speed, %
   double pcntRef_;           // Turbine speed closed loop reference, %Nt
-  double sd_;                // Derivative lookup scalar
+  double sd_;                // Derivative tlead lookup scalar
   double sg_;                // Integral lookup scalar
+  double sl_;                // Derivative tlag lookup scalar
   double st_;                // Proportional lookup scalar
   double throttle_;          // Final value sent to hardware and model, deg
   double throttleL_;         // Limited servo value, 0-179 degrees
