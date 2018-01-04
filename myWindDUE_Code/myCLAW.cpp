@@ -17,9 +17,9 @@ extern char buffer[256];
 
 //Class ControlLaw
 ControlLaw::ControlLaw()
-    : DENS_SI_(0), ad_(0), ag_(0), at_(0), dQ_(0), intState_(0),
+    : DENS_SI_(0), ad_(0), ag_(0), al_(0), at_(0), dQ_(0), intState_(0),
       modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
-      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), st_(1), 
+      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
   LG_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yLG);
@@ -32,9 +32,9 @@ ControlLaw::ControlLaw()
   modelFilterV_ = new LeadLagExp(0, tldV, tauF2V, -1e6, 1e6);
 }
 ControlLaw::ControlLaw(const double T, const double DENS_SI)
-    : DENS_SI_(DENS_SI), ad_(0), ag_(0), at_(0), intState_(0),
+    : DENS_SI_(DENS_SI), ad_(0), ag_(0), al_(0), at_(0), intState_(0),
       modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
-      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), st_(1), 
+      pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
   tldF_ = fixedLead;
@@ -93,7 +93,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   double riMax = RATE_MAX * dNdT;
 
 // PID
-  ec = clawFixedL_->calculate(e_, RESET, updateTime, tlgF_, tldF_*sd_+ad_ );
+  ec = clawFixedL_->calculate(e_, RESET, updateTime, tlgF_*sl_+al_, tldF_*sd_+ad_ );
   p_ = fmax(fmin(Kp_ * ec, NG_MAX), -NG_MAX);
   intState_ = fmax(fmin(intState_ + updateTime * fmax(fmin(Ki_ * ec, 0.5 * riMax), -0.5 * riMax), NG_MAX), -NG_MAX);
   double pcngCL = fmax(fmin(intState_ + p_, NG_MAX), ngmin);
