@@ -139,7 +139,7 @@ const double F2V_MAX = 3.3;                                    // Maximum F2V va
 #define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
 #endif
 #define CONTROL_DELAY    15000UL    // Control law wait (), micros
-#define CONTROL_08_DELAY  CONTROL_DELAY*8UL    // Control law wait (), micros
+#define CONTROL_10_DELAY  CONTROL_DELAY*10UL   // Control law wait (), micros
 #define CONTROL_100_DELAY CONTROL_DELAY*100UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
@@ -278,8 +278,8 @@ void setup()
   PowerDebounce = new Debounce(false, 1);
   ButtonDebounce = new Debounce(0, 3);
   ButtonRise = new DetectRise();
-  PowerDelayed  = new TFDelay(false, 0.12, 0.0, T*8);
-  EnableDelayed = new TFDelay(false, 2.0,  0.0, T*8);
+  PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
+  EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
   ThrottleHold  = new SRLatch(true);
   delay(100);
 }
@@ -296,8 +296,8 @@ void loop()
   static bool closingLoop = false;        // Persisted closing loop by pin cmd, T/F
   static bool stepping = false;           // Step by Photon send String
   bool control;                           // Control frame, T/F
-  bool control8;                          // Control 8T frame, T/F
-  bool control100 ;                       // Control 100T frame, T/F
+  bool control10;                         // Control 10T frame, T/F
+  bool control100;                        // Control 100T frame, T/F
   bool controlSquare;                     // Control square wave frame, T/F
   bool publish;                           // Publish, T/F
   static bool analyzing;                         // Begin analyzing, T/F
@@ -308,8 +308,8 @@ void loop()
   static double updateTime = 0.0;         // Control law update time, sec
   static unsigned long lastControl = 0UL;    // Last control law time, micros
   static unsigned long lastPublish = 0UL;    // Last publish time, micros
-  static unsigned long lastControl8  = 0UL;  // Last control 10T time, micros
-  static unsigned long lastControl100  = 0UL; // Last control 100T time, micros
+  static unsigned long lastControl10 = 0UL;  // Last control 10T time, micros
+  static unsigned long lastControl100 = 0UL; // Last control 100T time, micros
   static unsigned long lastControlSquare = 0UL;    // Last control square wave time, micros
   static unsigned long lastButton = 0UL;  // Last button push time, micros
   static unsigned long lastFR = 0UL;      // Last analyzing, micros
@@ -342,17 +342,17 @@ void loop()
     updateTime = float(deltaTick) / 1000000.0;
     lastControl = now;
   }
-  unsigned long deltaTick8 = now - lastControl8 ;
-  control8  = (deltaTick8 >= CONTROL_08_DELAY - CLOCK_TCK / 2);
-  if (control8 )
+  unsigned long deltaTick10 = now - lastControl10;
+  control10 = (deltaTick10 >= CONTROL_10_DELAY - CLOCK_TCK / 2);
+  if (control10)
   {
-    lastControl8  = now;
+    lastControl10 = now;
   }
-  unsigned long deltaTick100 = now - lastControl100 ;
-  control100  = (deltaTick100 >= CONTROL_100_DELAY - CLOCK_TCK / 2);
-  if (control100 )
+  unsigned long deltaTick100 = now - lastControl100;
+  control100 = (deltaTick100 >= CONTROL_100_DELAY - CLOCK_TCK / 2);
+  if (control100)
   {
-    lastControl100  = now;
+    lastControl100 = now;
   }
   unsigned long deltaTickSquare = now - lastControlSquare;
   controlSquare = (deltaTickSquare >= squareDelay - CLOCK_TCK / 2);
@@ -369,14 +369,11 @@ void loop()
       buttonState = ButtonDebounce->calculate(digitalRead(BUTTON_PIN));
       buttonRose = ButtonRise->calculate(buttonState);
     }
-    if ( control8  )
-    {
-      powerToCal = PowerDelayed->calculate(powered);
-      powerEnable = EnableDelayed->calculate(true);
-    }
-    if ( control100  )
+    if ( control100 )
     {
       powered = PowerDebounce->calculate(digitalRead(POWER_IN_PIN) == HIGH);
+      powerToCal = PowerDelayed->calculate(powered);
+      powerEnable = EnableDelayed->calculate(true);
     }
   }
   if ( (buttonRose||softButton) && (now - lastButton > 200000UL))
@@ -508,8 +505,7 @@ void loop()
     {
       analogWrite(DAC0, (CLAW->modelTS()   +50)*4095/200);
     }
-    analogWrite(  DAC1, (throttle          +0 )*4095/200);    
-    //if ( !calComplete ){ Serial.print(calComplete);Serial.print(',');Serial.print(throttle);Serial.print(',');Serial.print(powerEnable);Serial.print(',');Serial.print(powered);Serial.print(',');Serial.print(powerToCal);Serial.println(',');}
+    analogWrite(  DAC1, (throttle          +0 )*4095/200);
   }
 
   // Calculate frequency response
@@ -703,13 +699,14 @@ void RampReset(const bool set)
 bool Calibrate(void)
 {
   int throttle = 180;
-  while ( throttle>=0 )
+  while ( throttle>0 )
   {
     myservo.write(throttle);
     throttle -= 10;
     delay(50);      
   }
-  return(true);}
+  return(true);
+}
 
 // Discuss things with user
 
