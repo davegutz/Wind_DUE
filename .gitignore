@@ -49,3 +49,6 @@ Temporary Items
 *.raw
 Saves/~$F2V_Cal20171203.xlsx
 Saves/~$F2V_Cal20180104.xlsx
+Documentation/Circuits/LM2907-14 myESC_Raw2097.asc
+Documentation/Circuits/LM2907-14 myESC_Raw2097.plt
+Documentation/Circuits/LTC.lib
