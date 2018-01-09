@@ -23,7 +23,6 @@
 #include "math.h"
 
 // Test features
-// in myClaw.h  #define KIT   1   // -1=Photon, 0-4 = Arduino
 //#define CALIBRATING    // Use this to port converted v4 to the vpot serial signal for calibration
 int     verbose = 0;     // [0] Debug, as much as you can tolerate.   For talk() set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "b"
@@ -32,7 +31,8 @@ bool    closeOverride = false; // [false] the close loop switch is over-ridden b
 bool    dry = false;     // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
 bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
-
+int     myKit  = 2;      // [0] Kit serial number for personality match
+int     myF2v  = 2;      // [0] F2v serial number for personality match
 
 /*
 Controlling a servo position using a potentiometer (variable resistor)
@@ -139,7 +139,7 @@ const double F2V_MAX = 3.3;                                    // Maximum F2V va
 #define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
 #endif
 #define CONTROL_DELAY    15000UL    // Control law wait (), micros
-#define CONTROL_10_DELAY  CONTROL_DELAY*10UL   // Control law wait (), micros
+#define CONTROL_08_DELAY  CONTROL_DELAY*8UL    // Control law wait (), micros
 #define CONTROL_100_DELAY CONTROL_DELAY*100UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
@@ -273,13 +273,13 @@ void setup()
   inputString.reserve(200); // Reserve 200 bytes for inputString Serial Event
 
   // Instatiate gain scheduling tables
-  CLAW = new ControlLaw(T, DENS_SI);
+  CLAW = new ControlLaw(T, DENS_SI, myKit, myF2v);
   ClPinDebounce = new Debounce((digitalRead(CL_PIN) == HIGH), 3);
   PowerDebounce = new Debounce(false, 1);
   ButtonDebounce = new Debounce(0, 3);
   ButtonRise = new DetectRise();
-  PowerDelayed  = new TFDelay(false, 2.0, 0.0, T*100);
-  EnableDelayed = new TFDelay(false, 5.0, 0.0, T*100);
+  PowerDelayed  = new TFDelay(false, 0.12, 0.0, T*8);
+  EnableDelayed = new TFDelay(false, 2.0,  0.0, T*8);
   ThrottleHold  = new SRLatch(true);
   delay(100);
 }
@@ -296,8 +296,8 @@ void loop()
   static bool closingLoop = false;        // Persisted closing loop by pin cmd, T/F
   static bool stepping = false;           // Step by Photon send String
   bool control;                           // Control frame, T/F
-  bool control10;                         // Control 10T frame, T/F
-  bool control100;                        // Control 100T frame, T/F
+  bool control8;                          // Control 8T frame, T/F
+  bool control100 ;                       // Control 100T frame, T/F
   bool controlSquare;                     // Control square wave frame, T/F
   bool publish;                           // Publish, T/F
   static bool analyzing;                         // Begin analyzing, T/F
@@ -308,8 +308,8 @@ void loop()
   static double updateTime = 0.0;         // Control law update time, sec
   static unsigned long lastControl = 0UL;    // Last control law time, micros
   static unsigned long lastPublish = 0UL;    // Last publish time, micros
-  static unsigned long lastControl10 = 0UL;  // Last control 10T time, micros
-  static unsigned long lastControl100 = 0UL; // Last control 100T time, micros
+  static unsigned long lastControl8  = 0UL;  // Last control 10T time, micros
+  static unsigned long lastControl100  = 0UL; // Last control 100T time, micros
   static unsigned long lastControlSquare = 0UL;    // Last control square wave time, micros
   static unsigned long lastButton = 0UL;  // Last button push time, micros
   static unsigned long lastFR = 0UL;      // Last analyzing, micros
@@ -342,17 +342,17 @@ void loop()
     updateTime = float(deltaTick) / 1000000.0;
     lastControl = now;
   }
-  unsigned long deltaTick10 = now - lastControl10;
-  control10 = (deltaTick10 >= CONTROL_10_DELAY - CLOCK_TCK / 2);
-  if (control10)
+  unsigned long deltaTick8 = now - lastControl8 ;
+  control8  = (deltaTick8 >= CONTROL_08_DELAY - CLOCK_TCK / 2);
+  if (control8 )
   {
-    lastControl10 = now;
+    lastControl8  = now;
   }
-  unsigned long deltaTick100 = now - lastControl100;
-  control100 = (deltaTick100 >= CONTROL_100_DELAY - CLOCK_TCK / 2);
-  if (control100)
+  unsigned long deltaTick100 = now - lastControl100 ;
+  control100  = (deltaTick100 >= CONTROL_100_DELAY - CLOCK_TCK / 2);
+  if (control100 )
   {
-    lastControl100 = now;
+    lastControl100  = now;
   }
   unsigned long deltaTickSquare = now - lastControlSquare;
   controlSquare = (deltaTickSquare >= squareDelay - CLOCK_TCK / 2);
@@ -369,11 +369,14 @@ void loop()
       buttonState = ButtonDebounce->calculate(digitalRead(BUTTON_PIN));
       buttonRose = ButtonRise->calculate(buttonState);
     }
-    if ( control100 )
+    if ( control8  )
     {
-      powered = PowerDebounce->calculate(digitalRead(POWER_IN_PIN) == HIGH);
       powerToCal = PowerDelayed->calculate(powered);
       powerEnable = EnableDelayed->calculate(true);
+    }
+    if ( control100  )
+    {
+      powered = PowerDebounce->calculate(digitalRead(POWER_IN_PIN) == HIGH);
     }
   }
   if ( (buttonRose||softButton) && (now - lastButton > 200000UL))
@@ -505,7 +508,8 @@ void loop()
     {
       analogWrite(DAC0, (CLAW->modelTS()   +50)*4095/200);
     }
-    analogWrite(  DAC1, (throttle          +0 )*4095/200);
+    analogWrite(  DAC1, (throttle          +0 )*4095/200);    
+    //if ( !calComplete ){ Serial.print(calComplete);Serial.print(',');Serial.print(throttle);Serial.print(',');Serial.print(powerEnable);Serial.print(',');Serial.print(powered);Serial.print(',');Serial.print(powerToCal);Serial.println(',');}
   }
 
   // Calculate frequency response
@@ -699,14 +703,13 @@ void RampReset(const bool set)
 bool Calibrate(void)
 {
   int throttle = 180;
-  while ( throttle>0 )
+  while ( throttle>=0 )
   {
     myservo.write(throttle);
     throttle -= 10;
     delay(50);      
   }
-  return(true);
-}
+  return(true);}
 
 // Discuss things with user
 
@@ -850,7 +853,6 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
     bool *softButton, ControlLaw *CLAW, const int potThrottle, const bool calComplete, const bool analyzing,
     double *stepVal, unsigned long *squareDelay )
 {
-  Serial.print("Using KIT# ");  Serial.println(KIT);
   Serial.print("P= ");  Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [1]");
   Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative tlead scalar [1]");
   Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative tlead adder [0]");
@@ -893,7 +895,8 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
   Serial.println("    : transient performed with button push (?= <s>STEP, <f>FREQ, <v>VECT, <r>RAMP, <q>SQUARE) [s]");
   Serial.print("          :   stepVal="); Serial.println(*stepVal);
   Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
-  Serial.print("Using KIT# ");  Serial.println(KIT);
+  Serial.print("Using KIT# ");  Serial.println(CLAW->myKit());
+  Serial.print("Using F2V# ");  Serial.println(CLAW->myF2V());
   Serial.print("Calibration complete status="); Serial.print(calComplete);
   Serial.print(", vectoring="); Serial.print(*vectoring);
   Serial.print(", stepping=");  Serial.print(*stepping);

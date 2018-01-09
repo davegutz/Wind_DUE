@@ -18,12 +18,12 @@ extern char buffer[256];
 //Class ControlLaw
 ControlLaw::ControlLaw()
     : DENS_SI_(0), ad_(0), ag_(0), al_(0), at_(0), dQ_(0), intState_(0),
-      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(0), myF2V_(0),
       pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
-  LG_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yLG);
-  TLD_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yTLD);
+  LG_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yLG);
+  TLD_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yTLD);
   tldF_ = fixedLead;
   tlgF_ = fixedLag;
   clawFixedL_ = new LeadLagExp(0, fixedLead, fixedLag, -1e6, 1e6);
@@ -31,18 +31,18 @@ ControlLaw::ControlLaw()
   modelFilterT_ = new LeadLagExp(0, tldT, 1.00, -1e6, 1e6);
   modelFilterV_ = new LeadLagExp(0, tldV, tauF2V, -1e6, 1e6);
 }
-ControlLaw::ControlLaw(const double T, const double DENS_SI)
+ControlLaw::ControlLaw(const double T, const double DENS_SI, const int myKit, const int myF2V)
     : DENS_SI_(DENS_SI), ad_(0), ag_(0), al_(0), at_(0), intState_(0),
-      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(myKit), myF2V_(myF2V),
       pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
   tldF_ = fixedLead;
   tlgF_ = fixedLag;
   clawFixedL_ = new LeadLagExp(T, tldF_, tlgF_, -1e6, 1e6);
-  dQ_ = DCPDL * DENS_SI_ * D_SI * D_SI * AREA_SI * 3.1415926 / 240 / LAMBDA * NM_2_FTLBF;
-  LG_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yLG);
-  TLD_T_ = new TableInterp1Dclip(sizeof(xALL) / sizeof(double), xALL, yTLD);
+  dQ_ = DCPDL[myKit_] * DENS_SI_ * D_SI * D_SI * AREA_SI * 3.1415926 / 240 / LAMBDA[myKit_] * NM_2_FTLBF;
+  LG_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yLG);
+  TLD_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yTLD);
   modelFilterG_ = new LeadLagExp(T, tldG, tauG, -1e6, 1e6);
   modelFilterT_ = new LeadLagExp(T, tldT, 1.00, -1e6, 1e6);
   modelFilterV_ = new LeadLagExp(T, tldV, tauF2V, -1e6, 1e6);
@@ -59,10 +59,13 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   if (bare || dry)
     pcnt_ = modelTS_;
   else
-    pcnt_ = fmin(fmax(P_V4_NT[0] + vf2v * (P_V4_NT[1] + vf2v * P_V4_NT[2]) / RPM_P, 0.0), 100);
+  {
+    double vf2v5 = vf2v / V5vdc[myKit_] * 5.0;   // Normalize voltage measurement
+    pcnt_ = fmin(fmax(P_V4_NT[myF2V_][0] + vf2v5 * (P_V4_NT[myF2V_][1] + vf2v5 * P_V4_NT[myF2V_][2]) / RPM_P, 0.0), 100);
+  }
   // Add 1.15 in following line to drive to max
   double throttleRPM = fmin(fmax(1.15*(P_LTALL_NG[0] + P_LTALL_NG[1] * log(fmax(potThrottle, 1))), ngmin), RPM_P*100); // Ng demand at throttle, rpm
-  pcntRef_ = (P_NG_NT[0] + P_NG_NT[1] * throttleRPM) / RPM_P;
+  pcntRef_ = (P_NG_NT[myKit_][0] + P_NG_NT[myKit_][1] * throttleRPM) / RPM_P;
   if (closingLoop && (freqResp || vectoring))
   {
     if ( freqResp )
@@ -123,7 +126,7 @@ double ControlLaw::throttleLims(const int RESET, const double updateTime, const 
      if ( freqResp) throttleU = potThrottle * (1 + exciter / freqRespScalar) + exciter * freqRespAdder; // deg throttle
      else if ( vectoring )
      {
-        double throttleRPM = fmax(fmin((exciter*RPM_P - P_NG_NT[0])/P_NG_NT[1], NG_MAX*RPM_P), ngmin*RPM_P);
+        double throttleRPM = fmax(fmin((exciter*RPM_P - P_NG_NT[myKit_][0])/P_NG_NT[myKit_][1], NG_MAX*RPM_P), ngmin*RPM_P);
         throttleU = exp((throttleRPM - P_LTALL_NG[0]) / P_LTALL_NG[1]);
      }
      else throttleU = potThrottle;
@@ -154,7 +157,7 @@ void ControlLaw::model(const double throttle, const int RESET, const double upda
     modPcng_ = fmin(fmax(1.00*(P_LTALL_NG[0] + P_LTALL_NG[1] * log(double(int(throttle)))) / RPM_P, 0.0), 100);
   double Fg_SI = FG_SI * (modelG_/100)*(modelG_/100);     // N
   double Vw_SI = sqrt(Fg_SI / AREA_SI / DENS_SI_);        // m/s
-  dQt_dNt = fmin(dQ_ * (Vw_SI - DELTAV), -1e-16);
+  dQt_dNt = fmin(dQ_ * (Vw_SI - DELTAV[myKit_]), -1e-16);
   tauT = fmin(fmax(-J / dQt_dNt, 0.02), 0.5);
   modelG_ = modelFilterG_->calculate(modPcng_, RESET);
   modelT_ = modelFilterT_->calculate((P_NGALL_NT[0] + modelG_ * RPM_P * P_NGALL_NT[1]) / RPM_P, RESET, updateTime, tauT, tldT);
