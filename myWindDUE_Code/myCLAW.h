@@ -66,6 +66,10 @@ static const double DCPDL[6]     = { -0.418,   -0.89,  -1.1,   -0.83,  -1.3,   -
 static const double LAMBDA[6]    = { 2.54,     3.4,    3.6,    3.4,    4.0,    3.8};
 // TODO Air velocity turbine first moves, m/s
 static const double DELTAV[6]    = { 1,        7,      9,      8,      10,     11};
+// POT
+static const double POT_MIN[6]   = {0.01,     0.04,     0.01,   0.026,    0.01,     0.29};
+static const double POT_MAX[6]   = {3.29,     3.29,     3.29,   3.29,     3.29,     3.29};
+
                                       
 
 // Control Law Class
@@ -73,7 +77,7 @@ class ControlLaw
 {
 public:
   ControlLaw();
-  ControlLaw(const double T, const double DENS_SI, const int myKit, const int myF2V);
+  ControlLaw(const double T, const double DENS_SI, const int myKit, const int myF2v);
   ~ControlLaw(){};
   // operators
   // functions
@@ -102,8 +106,10 @@ public:
   double tldF(void) { return(tldF_);};
   double tlgF(void) { return(tlgF_);};
   double LG(void) { return(Ki_);};
+  int myKit(const int kit) { myKit_ = kit;};
+  int myF2v(const int f2v) { myF2v_ = f2v;};
   int myKit(void) { return(myKit_);};
-  int myF2V(void) { return(myF2V_);};
+  int myF2v(void) { return(myF2v_);};
   double TLD(void) { return(Kp_/Ki_);};
   void Sd(const double S) { sd_ = S; };
   void Sg(const double S) { sg_ = S; };
@@ -137,7 +143,7 @@ private:
   double modelT_;            // Model Turbine, %Nt
   double modelTS_;           // Model Turbine Sensed, %Nt
   double modPcng_;           // Modeled pcng ref after esc ttl delay, %Nt
-  int    myF2V_;             // F2V serial number personality index
+  int    myF2v_;             // F2V serial number personality index
   int    myKit_;             // Kit serial number personality index
   double p_;                 // Prop path, %Nt
   double pcnt_;              // Turbine speed, %

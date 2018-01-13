@@ -23,7 +23,6 @@
 #include "math.h"
 
 // Test features
-//#define CALIBRATING    // Use this to port converted v4 to the vpot serial signal for calibration
 int     verbose = 0;     // [0] Debug, as much as you can tolerate.   For talk() set using "v#"
 bool    bare = false;    // [false] The microprocessor is completely disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "b"
 bool    potOverride = false; // [false] The pot is over-ridden by talk()
@@ -33,6 +32,7 @@ double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAd
 bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
 int     myKit  = 2;      // [0] Kit serial number for personality match
 int     myF2v  = 2;      // [0] F2v serial number for personality match
+bool    calibrating = false; // [false] passing through raw voltages so POT_MAX and POT_MIN can be determined
 
 /*
 Controlling a servo position using a potentiometer (variable resistor)
@@ -129,24 +129,15 @@ Connections for Arduino:
 #define CLOCK_TCK 16UL                                         // Clock tick resolution, micros
 #define INSCALE 1023.0                                         // Input full range from OS
 const double vpotHalfDB = 0.0;                                 // Half deadband sliding deadband filter, volts
-const double POT_MAX = 3.3;                                    // Maximum POT value, vdc
-const double F2V_MAX = 3.3;                                    // Maximum F2V value, vdc
 
 //********constants for all*******************
-#ifdef CALIBRATING
-#define PUBLISH_DELAY 150000UL      // Time between cloud updates (), micros
-#else
-#define PUBLISH_DELAY 15000UL       // Time between cloud updates (), micros
-#endif
-#define CONTROL_DELAY    15000UL    // Control law wait (), micros
+#define PUBLISH_DELAY    15000UL        // Time between cloud updates (), micros
+#define CONTROL_DELAY    15000UL        // Control law wait (), micros
 #define CONTROL_08_DELAY  CONTROL_DELAY*8UL    // Control law wait (), micros
 #define CONTROL_100_DELAY CONTROL_DELAY*100UL  // Control law wait (), micros
 #define FR_DELAY 4000000UL    // Time to start FR, micros
 const double F2V_MIN = 0.0;   // Minimum F2V value, vdc
-const double POT_MIN = 0.5;     // Minimum POT value, vdc
 const double DENS_SI = 1.225; // Air density, kg/m^3
-const double POT_BIA = POT_MIN + vpotHalfDB;                    // Pot adder, vdc.   0.1 is observed vpot+  min with 3.3/1023
-const double POT_SCL = (3.1 - vpotHalfDB - POT_BIA) / POT_MAX; // Pot scalar, vdc.   3.1 is observed vpot- max with 3.3/1023
 
 // Test
 testType testOnButton = STEP;
@@ -261,11 +252,10 @@ void setup()
   if (verbose > 0)
   {
     //******************************************************************************************************************************
-#ifdef CALIBRATING
-    sprintf(buffer, "\ntime,mode,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
-#else
-    sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
-#endif
+    if (calibrating)
+      sprintf(buffer, "\ntime,mode,vpot,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+    else
+      sprintf(buffer, "\ntime,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
     Serial.print(buffer);
   }
 
@@ -330,7 +320,10 @@ void loop()
   // Executive
   if (start == 0UL) start = now;
   elapsedTime = double(now - start) * 1e-6;
-  publish = ((now - lastPublish) >= PUBLISH_DELAY - CLOCK_TCK / 2);
+  if (calibrating)
+    publish = ((now - lastPublish) >= PUBLISH_DELAY*10 - CLOCK_TCK / 2);
+  else
+    publish = ((now - lastPublish) >= PUBLISH_DELAY - CLOCK_TCK / 2);
   if (publish)
   {
     lastPublish = now;
@@ -446,8 +439,17 @@ void loop()
     {
       potValue = analogRead(POT_PIN);
     }
-    vf2v = double(f2vValue) / INSCALE * F2V_MAX;
-    vpot = fmin(fmax((double(potValue) / INSCALE * POT_MAX - POT_BIA) / POT_SCL, 0), POT_MAX);
+    vf2v = double(f2vValue) / INSCALE * 3.3;
+    if (calibrating)
+    {
+      vpot = (double(potValue) / INSCALE * 3.3);
+    }
+    else
+    {
+      double POT_BIA = POT_MIN[myKit]; 
+      double POT_SCL = (POT_MAX[myKit] - POT_BIA) / 3.3;
+      vpot = fmin(fmax((double(potValue) / INSCALE * 3.3 - POT_BIA) / POT_SCL, 0), 3.3);
+    }
   }
 
   // Control law
@@ -456,7 +458,7 @@ void loop()
     vpotDead = fmax(fmin(vpotDead, vpot + vpotHalfDB), vpot - vpotHalfDB);
     if (!freqResp)
       vpot_filt = throttleFilter->calculate(vpotDead, RESET); // Freeze pot for FR
-    potThrottle = vpot_filt * THTL_MAX / POT_MAX;      // deg
+    potThrottle = vpot_filt * THTL_MAX / 3.3;      // deg
     double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P;  // Rate normalizer, %Ng/deg
     potThrottle += stepping * stepVal / dNdT;
 
@@ -575,11 +577,11 @@ void loop()
       {
         Serial.print(elapsedTime, 6);Serial.print(",");
         Serial.print(mode, DEC);Serial.print(", ");
-        #ifdef CALIBRATING
+        Serial.print(vpot, 3);Serial.print(",");
+        if (calibrating)
+        {
           Serial.print(vf2v, 3);Serial.print(",");
-        #else
-          Serial.print(vpot, 3);Serial.print(",  ");
-        #endif
+        }
         Serial.print(CLAW->pcntRef(), DEC);Serial.print(",");
         sprintf(buffer, "%s,", String(CLAW->pcnt()).c_str()); Serial.print(buffer);
         Serial.print(CLAW->modelTS(), DEC);Serial.print(",");
@@ -776,15 +778,28 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
         if ( *closingLoop ) closeOverride = true;
         else closeOverride = false;
         break;
+      case ( 'X' ):
+        calibrating = !calibrating;
+        break;
       case ( 'v' ):
         verbose = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
+        break;
+      case ( 'K' ):
+        myKit = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
+        CLAW->myKit(myKit);
+        break;
+      case ( 'F' ):
+        myF2v = fmax(fmin(inputString.substring(1).toInt(), 10), 0);
+        CLAW->myF2v(myF2v);
         break;
       case ( 'p' ):
         potThrottleX = inputString.substring(1).toFloat();
         if (potThrottleX>=THTL_MIN && potThrottleX<=THTL_MAX)  // ignore otherwise
         {
-          double vpotX = potThrottleX * POT_MAX / THTL_MAX;
-          *potValue  = (vpotX*POT_SCL + POT_BIA)/POT_MAX*INSCALE;
+          double vpotX = potThrottleX * POT_MAX[myKit] / THTL_MAX;
+          double POT_BIA = POT_MIN[myKit]; 
+          double POT_SCL = (POT_MAX[myKit] - POT_BIA) / 3.3;
+          *potValue  = (vpotX*POT_SCL + POT_BIA)/3.3*INSCALE;
         } 
         if (potThrottleX > -50) potOverride = true;
         else potOverride = false;
@@ -793,11 +808,10 @@ void talk(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
         talkT(stepping, stepVal, squareDelay);
         break;
       case ('H'):  // Headers
-        #ifdef CALIBRATING
-          sprintf(buffer, "\nMONITOR:  time,mode,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
-        #else
+        if (calibrating)
+          sprintf(buffer, "\nMONITOR:  time,mode,vpot,vf2v,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
+        else
           sprintf(buffer, "\nMONITOR:  time,mode,vpot,  pcntref,pcntSense,pcntSenseM,  err,state,thr, modPcng,T\n");
-        #endif
         Serial.print(buffer);
         sprintf(buffer, "PLOTTING:  NtRef(blue), Nts(red), NtsM(green), NgM(orange), throttleU/1.8(magenta), throttle/1.8(olive)\n");
         Serial.print(buffer);
@@ -853,6 +867,8 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
     bool *softButton, ControlLaw *CLAW, const int potThrottle, const bool calComplete, const bool analyzing,
     double *stepVal, unsigned long *squareDelay )
 {
+  Serial.print("K= ");  Serial.print(myKit);       Serial.println("    : KIT number[0]");
+  Serial.print("F= ");  Serial.print(myF2v);       Serial.println("    : F2V number[0]");
   Serial.print("P= ");  Serial.print(plotting);    Serial.println("    : plotting out SerialUSB [1]");
   Serial.print("Sd= "); Serial.print(CLAW->Sd());  Serial.println("    : PID derivative tlead scalar [1]");
   Serial.print("Ad= "); Serial.print(CLAW->Ad());  Serial.println("    : PID derivative tlead adder [0]");
@@ -870,6 +886,7 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
   Serial.print("b=  "); Serial.print(*softButton);Serial.println("    : button state toggle [0]");
   Serial.print("D=  "); Serial.print(dry);         Serial.println("    : dry toggle no turbine [0]");
   Serial.print("C=  "); Serial.print(*closingLoop);Serial.println("    : closing loop toggle [0].   Will over-ride a failed open switch.");
+  Serial.print("X=  "); Serial.print(calibrating);Serial.println("    : calibrating toggle [false].");
   Serial.print("v=  "); Serial.print(verbose);     Serial.println("    : verbosity, 0-10. 2 for save csv [0]");
   Serial.print("P=  "); Serial.print(plotting);    Serial.println("    : streaming to U.   Toggle to pause plots [1]");
   Serial.print("p=  "); Serial.print(potThrottle); Serial.println("    : POT override, deg [when input P value>-50]");
@@ -896,11 +913,11 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
   Serial.print("          :   stepVal="); Serial.println(*stepVal);
   Serial.print("          :   squareDelay="); Serial.println(*squareDelay);
   Serial.print("Using KIT# ");  Serial.println(CLAW->myKit());
-  Serial.print("Using F2V# ");  Serial.println(CLAW->myF2V());
+  Serial.print("Using F2V# ");  Serial.println(CLAW->myF2v());
   Serial.print("Calibration complete status="); Serial.print(calComplete);
   Serial.print(", vectoring="); Serial.print(*vectoring);
   Serial.print(", stepping=");  Serial.print(*stepping);
   Serial.print(", analyzing="); Serial.println(analyzing);
-  Serial.print("MODE[bare|closingLoop|testOnButton|analyzing]="); Serial.println(bare*10000+(*closingLoop)*1000+testOnButton*10+analyzing);
+  Serial.print("MODE[bare|closingLoop|dry|testOnButton|analyzing]="); Serial.println(bare*10000+(*closingLoop)*1000+dry*100+testOnButton*10+analyzing);
 }
     

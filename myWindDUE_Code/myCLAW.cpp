@@ -18,7 +18,7 @@ extern char buffer[256];
 //Class ControlLaw
 ControlLaw::ControlLaw()
     : DENS_SI_(0), ad_(0), ag_(0), al_(0), at_(0), dQ_(0), intState_(0),
-      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(0), myF2V_(0),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(0), myF2v_(0),
       pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
@@ -31,9 +31,9 @@ ControlLaw::ControlLaw()
   modelFilterT_ = new LeadLagExp(0, tldT, 1.00, -1e6, 1e6);
   modelFilterV_ = new LeadLagExp(0, tldV, tauF2V, -1e6, 1e6);
 }
-ControlLaw::ControlLaw(const double T, const double DENS_SI, const int myKit, const int myF2V)
+ControlLaw::ControlLaw(const double T, const double DENS_SI, const int myKit, const int myF2v)
     : DENS_SI_(DENS_SI), ad_(0), ag_(0), al_(0), at_(0), intState_(0),
-      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(myKit), myF2V_(myF2V),
+      modelG_(0), modelT_(0), modelTS_(0), modPcng_(0), myKit_(myKit), myF2v_(myF2v),
       pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
@@ -61,7 +61,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   else
   {
     double vf2v5 = vf2v / V5vdc[myKit_] * 5.0;   // Normalize voltage measurement
-    pcnt_ = fmin(fmax(P_V4_NT[myF2V_][0] + vf2v5 * (P_V4_NT[myF2V_][1] + vf2v5 * P_V4_NT[myF2V_][2]) / RPM_P, 0.0), 100);
+    pcnt_ = fmin(fmax(P_V4_NT[myF2v_][0] + vf2v5 * (P_V4_NT[myF2v_][1] + vf2v5 * P_V4_NT[myF2v_][2]) / RPM_P, 0.0), 100);
   }
   // Add 1.15 in following line to drive to max
   double throttleRPM = fmin(fmax(1.15*(P_LTALL_NG[0] + P_LTALL_NG[1] * log(fmax(potThrottle, 1))), ngmin), RPM_P*100); // Ng demand at throttle, rpm
