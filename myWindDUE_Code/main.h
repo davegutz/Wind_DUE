@@ -30,8 +30,8 @@ bool    closeOverride = false; // [false] the close loop switch is over-ridden b
 bool    dry = false;     // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
 bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
-int     myKit  = 2;      // [0] Kit serial number for personality match
-int     myF2v  = 2;      // [0] F2v serial number for personality match
+int     myKit  = 0;      // [0] Kit serial number for personality match
+int     myF2v  = 0;      // [0] F2v serial number for personality match
 bool    calibrating = false; // [false] passing through raw voltages so POT_MAX and POT_MIN can be determined
 
 /*
