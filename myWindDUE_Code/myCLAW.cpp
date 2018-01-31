@@ -22,8 +22,10 @@ ControlLaw::ControlLaw()
       pcnt_(0), pcntRef_(0), sd_(1), sg_(1), sl_(1), st_(1), 
       throttle_(0), throttleL_(0)
 {
-  LG_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yLG);
+  KI_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yKI);
   TLD_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yTLD);
+ // T_NG_T_ = new TableInterp1Dclip(sizeof(xT_NG[myKit_]) / sizeof(double), xT_NG[myKit_], yT_NG[myKit_]);
+ // NG_T_T_ = new TableInterp1Dclip(sizeof(xT_NG[myKit_]) / sizeof(double), yT_NG[myKit_], xT_NG[myKit_]);
   tldF_ = fixedLead;
   tlgF_ = fixedLag;
   clawFixedL_ = new LeadLagExp(0, fixedLead, fixedLag, -1e6, 1e6);
@@ -41,8 +43,10 @@ ControlLaw::ControlLaw(const double T, const double DENS_SI, const int myKit, co
   tlgF_ = fixedLag;
   clawFixedL_ = new LeadLagExp(T, tldF_, tlgF_, -1e6, 1e6);
   dQ_ = DCPDL[myKit_] * DENS_SI_ * D_SI * D_SI * AREA_SI * 3.1415926 / 240 / LAMBDA[myKit_] * NM_2_FTLBF;
-  LG_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yLG);
+  KI_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yKI);
   TLD_T_ = new TableInterp1Dclip(sizeof(xALL[myKit_]) / sizeof(double), xALL[myKit_], yTLD);
+//  T_NG_T_ = new TableInterp1Dclip(sizeof(xT_NG[myKit_]) / sizeof(double), xT_NG[myKit_], yT_NG[myKit_]);
+//  NG_T_T_ = new TableInterp1Dclip(sizeof(xT_NG[myKit_]) / sizeof(double), yT_NG[myKit_], xT_NG[myKit_]);
   modelFilterG_ = new LeadLagExp(T, tldG, tauG, -1e6, 1e6);
   modelFilterT_ = new LeadLagExp(T, tldT, 1.00, -1e6, 1e6);
   modelFilterV_ = new LeadLagExp(T, tldV, tauF2V, -1e6, 1e6);
@@ -54,7 +58,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
                              const double exciter, const double freqRespScalar,
                              const double freqRespAdder, const double potThrottle, const double vf2v)
 {
-  static const double ngmin = NG_MIN-exp(-P_LTALL_NG[0]/P_LTALL_NG[1]);
+  static const double ngmin = NG_MIN-exp(-P_LT_NG[myKit_][0]/P_LT_NG[myKit_][1]);
   // Inputs
   if (bare || dry)
     pcnt_ = modelTS_;
@@ -64,7 +68,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
     pcnt_ = fmin(fmax(P_V4_NT[myF2v_][0] + vf2v5 * (P_V4_NT[myF2v_][1] + vf2v5 * P_V4_NT[myF2v_][2]) / RPM_P, 0.0), 100);
   }
   // Add 1.15 in following line to drive to max
-  double throttleRPM = fmin(fmax(1.15*(P_LTALL_NG[0] + P_LTALL_NG[1] * log(fmax(potThrottle, 1))), ngmin), RPM_P*100); // Ng demand at throttle, rpm
+  double throttleRPM = fmin(fmax(1.15*(P_LT_NG[myKit_][0] + P_LT_NG[myKit_][1] * log(fmax(potThrottle, 1))), ngmin), RPM_P*100); // Ng demand at throttle, rpm
   pcntRef_ = (P_NG_NT[myKit_][0] + P_NG_NT[myKit_][1] * throttleRPM) / RPM_P;
   if (closingLoop && (freqResp || vectoring))
   {
@@ -82,7 +86,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   // Initialization
   if (RESET)
   {
-    intState_ = fmax((P_LTALL_NG[0] + 1.15*P_LTALL_NG[1] * log(potThrottle)) / RPM_P, ngmin);
+    intState_ = fmax((P_LT_NG[myKit_][0] + 1.15*P_LT_NG[myKit_][1] * log(potThrottle)) / RPM_P, ngmin);
     pcnt_ = pcntRef_;
     modelTS_ = pcntRef_;
   }
@@ -90,9 +94,9 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   // Control Law
   e_ = pcntRef_ - pcnt_;
   double ec = e_;
-  Ki_ = LG_T_->interp(pcnt_)*sg_+ag_;                         // r/s
+  Ki_ = KI_T_->interp(pcnt_)*sg_+ag_;                         // r/s
   Kp_ = (TLD_T_->interp(pcnt_)*st_+at_) * Ki_;                // %Ng/%Nf=1
-  double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P; // Rate normalizer, %Ng/deg
+  double dNdT = P_LT_NG[myKit_][1] / fmax(potThrottle, 1) / RPM_P; // Rate normalizer, %Ng/deg
   double riMax = RATE_MAX * dNdT;
 
 // PID
@@ -100,7 +104,7 @@ double ControlLaw::calculate(const int RESET, const double updateTime, const boo
   p_ = fmax(fmin(Kp_ * ec, NG_MAX), -NG_MAX);
   intState_ = fmax(fmin(intState_ + updateTime * fmax(fmin(Ki_ * ec, 0.5 * riMax), -0.5 * riMax), NG_MAX), -NG_MAX);
   double pcngCL = fmax(fmin(intState_ + p_, NG_MAX), ngmin);
-  throttleCL_ = exp((pcngCL * RPM_P - P_LTALL_NG[0]) / P_LTALL_NG[1]);
+  throttleCL_ = exp((pcngCL * RPM_P - P_LT_NG[myKit_][0]) / P_LT_NG[myKit_][1]);
 
   // Limits
   throttle_ = throttleLims(RESET, updateTime, closingLoop, freqResp, vectoring, exciter, freqRespScalar, freqRespAdder, potThrottle, ngmin);
@@ -127,7 +131,7 @@ double ControlLaw::throttleLims(const int RESET, const double updateTime, const 
      else if ( vectoring )
      {
         double throttleRPM = fmax(fmin((exciter*RPM_P - P_NG_NT[myKit_][0])/P_NG_NT[myKit_][1], NG_MAX*RPM_P), ngmin*RPM_P);
-        throttleU = exp((throttleRPM - P_LTALL_NG[0]) / P_LTALL_NG[1]);
+        throttleU = exp((throttleRPM - P_LT_NG[myKit_][0]) / P_LT_NG[myKit_][1]);
      }
      else throttleU = potThrottle;
   }
@@ -152,15 +156,15 @@ void ControlLaw::model(const double throttle, const int RESET, const double upda
   double dQt_dNt; // Load line for inertia calculation, ft-lbf/rpm
   double tauT;    // Model Fan lag time constant, sec
   if (RESET)
-    modPcng_ = fmin(fmax((P_NTALL_NG[0] + pcntRef_ * RPM_P * P_NTALL_NG[1]) / RPM_P, 0), 100);
+    modPcng_ = fmin(fmax((P_NT_NG[myKit_][0] + pcntRef_ * RPM_P * P_NT_NG[myKit_][1]) / RPM_P, 0), 100);
   else
-    modPcng_ = fmin(fmax(1.00*(P_LTALL_NG[0] + P_LTALL_NG[1] * log(double(int(throttle)))) / RPM_P, 0.0), 100);
+    modPcng_ = fmin(fmax(1.00*(P_LT_NG[myKit_][0] + P_LT_NG[myKit_][1] * log(double(int(throttle)))) / RPM_P, 0.0), 100);
   double Fg_SI = FG_SI * (modelG_/100)*(modelG_/100);     // N
   double Vw_SI = sqrt(Fg_SI / AREA_SI / DENS_SI_);        // m/s
   dQt_dNt = fmin(dQ_ * (Vw_SI - DELTAV[myKit_]), -1e-16);
   tauT = fmin(fmax(-J / dQt_dNt, 0.02), 0.5);
   modelG_ = modelFilterG_->calculate(modPcng_, RESET);
-  modelT_ = modelFilterT_->calculate((P_NGALL_NT[0] + modelG_ * RPM_P * P_NGALL_NT[1]) / RPM_P, RESET, updateTime, tauT, tldT);
+  modelT_ = modelFilterT_->calculate((P_NG_NT[myKit_][0] + modelG_ * RPM_P * P_NG_NT[myKit_][1]) / RPM_P, RESET, updateTime, tauT, tldT);
   modelTS_ = modelFilterV_->calculate(modelT_, RESET);
 }
 

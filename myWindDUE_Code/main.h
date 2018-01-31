@@ -30,8 +30,8 @@ bool    closeOverride = false; // [false] the close loop switch is over-ridden b
 bool    dry = false;     // [false] The turbine and ESC are disconnected.  Fake inputs and sensors for test purposes.  For talk() set using "t"
 double  stepVal = 6;     // [6] Step input, %nf.  Try to make same as freqRespAdder
 bool    plotting = true; // [false] This is for Serial Plotter compatible output (menu - Tools - Serial Plotter)
-int     myKit  = 2;      // [0] Kit serial number for personality match
-int     myF2v  = 2;      // [0] F2v serial number for personality match
+int     myKit  = 3;      // [0] Kit serial number for personality match
+int     myF2v  = 3;      // [0] F2v serial number for personality match
 bool    calibrating = false; // [false] passing through raw voltages so POT_MAX and POT_MIN can be determined
 
 /*
@@ -459,7 +459,7 @@ void loop()
     if (!freqResp)
       vpot_filt = throttleFilter->calculate(vpotDead, RESET); // Freeze pot for FR
     potThrottle = vpot_filt * THTL_MAX / 3.3;      // deg
-    double dNdT = P_LTALL_NG[1] / fmax(potThrottle, 1) / RPM_P;  // Rate normalizer, %Ng/deg
+    double dNdT = P_LT_NG[CLAW->myKit()][1] / fmax(potThrottle, 1) / RPM_P;  // Rate normalizer, %Ng/deg
     potThrottle += stepping * stepVal / dNdT;
 
     throttle = CLAW->calculate(RESET, updateTime, closingLoop, analyzing, freqResp, vectoring, exciter, freqRespScalar, freqRespAdder, potThrottle, vf2v);
@@ -878,7 +878,7 @@ void talkh(bool *vectoring, bool *closingLoop, bool *stepping, int *potValue,
   Serial.print("   ref:   tlg= "); Serial.print(CLAW->tlgF(),3); Serial.println("    : present PID fixed lag");
   Serial.print("Sg= "); Serial.print(CLAW->Sg());  Serial.println("    : PID loopgain (integral) scalar [1]");
   Serial.print("Ag= "); Serial.print(CLAW->Ag());  Serial.println("    : PID loopgain (integral) adder [0]");
-  Serial.print("          LG= "); Serial.print(CLAW->LG()); Serial.println("    : PID loop gain, r/s [various]");
+  Serial.print("          KI= "); Serial.print(CLAW->KI()); Serial.println("    : PID loop gain, r/s [various]");
   Serial.print("St= "); Serial.print(CLAW->St());  Serial.println("    : PID lead (proportional) tlead scalar [1]");
   Serial.print("At="); Serial.print(CLAW->At());  Serial.println("    : PID lead (proportional) tlead adder [0]");
   Serial.print("          TLD= "); Serial.print(CLAW->TLD()); Serial.println("    : PID TLD, sec [various]");

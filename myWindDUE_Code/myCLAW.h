@@ -27,9 +27,11 @@ static const double THTL_MAX = 180; // Maximum throttle, deg
 static const double NG_MAX = 100;   // Maximum trim, %Ng
 
 // Lookups where accuracy less of an issue
+/* Replaced with personality 20180129
 static const double P_LTALL_NG[2] = {-25454, 13062};  // Common coeff throttle(deg) to NG(rpm)
 static const double P_NGALL_NT[2] = {-7208, 1.0000};  // Coeff NG(rpm) to NT(rpm)
 static const double P_NTALL_NG[2] = {-7208, 1.0000};  // Coeff NG(rpm) to NT(rpm)
+*/
 //
 // Generic throttle-->Ng used in control laws.   These characteristics below (except xALL) are for test consistency.
 // xALL nominally used to calibrate for a wildly different tauT on some kits.   Then problem can concentrate on gain variations.
@@ -41,7 +43,7 @@ static const double P_V4_NT[8][3] = { {0, 13002, 298}, {0, 14111, 265}, {0, 1411
 
 // F2Vs
 // The actual 5 volt regulated value 
-static const double V5vdc[6]      = { 4.94, 4.92, 4.93, 999, 4.89, 4.80 }; // 1/7/2018
+static const double V5vdc[6]      = { 4.94, 4.92, 4.93, 4.95, 4.89, 4.80 }; // 1/7/2018
 
 // KITs
 // Ard1_Turn0_ESC0_G0b_T0a 1/4/2017
@@ -51,15 +53,38 @@ static const double V5vdc[6]      = { 4.94, 4.92, 4.93, 999, 4.89, 4.80 }; // 1/
 // Ard4_Turn4_ESC4_G4b_T4a 1/24/2017
 // Ard_Turn_ESC_Gb_Ta 1/24/2017
 // Gain table lookups, Nt breakpoints
-static const double xALL[6][6]  = { {0.,    0.01,  27.2,    47.4,   75.1,    80.},
-                                    {0.,    21.7,  37.3,    50.5,   64.1,    80.},
-                                    {0.,    22.0,  36.5,    49.1,   67.7,    80.},
-                                    {0.,    21.6,  37.0,    51.0,   70.8,    80.},
-                                    {0.,    21.6,  37.5,    51.3,   67.9,    80.},
-                                    {0.,    14,   31.9,     48,     69.7,    80.}}; 
+static const double xALL[6][6]  = { {0.,    0.01,  27.2,  47.4, 75.1, 80.},
+                                    {0.,    21.7,  37.3,  50.5, 64.1, 80.},
+                                    {0.,    22.0,  36.5,  49.1, 67.7, 80.},
+                                    {0.,    21.6,  37.0,  51.0, 70.8, 80.},
+                                    {0.,    21.6,  37.5,  51.3, 67.9, 80.},
+                                    {0.,    14,   31.9,   48,   69.7, 80.}}; 
+/*  Ref only.  LT_NG used in Arduino.    Full table used in Simulink.   
+static const double xT_NG[6][14] ={ {0,     1,    7.36,   8,    13,   25,   35,   54,   64,   89,   125,  155,  165,  180.},
+                                    {0,     1,    2,      10,   16,   20,   25,   35,   50,   75,   100,  140,  170,  180.},
+                                    {0,     7,    9,      16,   24,   28,   32,   50,   78,   115,  140,  155,  164,  180.},
+                                    {6.7,   9,    16,     24,   28,   36,   52,   73,   94,   99,   110,  132,  165,  180.},
+                                    {0,     1,    2,      6.7,  16,   26,   34,   51,   76,   91,   106,  132,  166,  180.},
+                                    {0,     1,    7.1,    9,    20,   26,   34,   51,   76,   91,   106,  132,  168,  180.}};
+static const double yT_NG[6][14] ={ {-2,    -1,   0,      8955, 12987,18405,22388,27907,29703,33898,39474,43988,45593,48000},
+                                    {-3,    -2,   -1,     0,    11000,13300,15000,19500,24000,29200,33000,38700,44000,44500},
+                                    {-1,    0,    9000,   13000,17200,19300,20500,25500,30500,34300,36400,38200,39300,39800},
+                                    {0,     6500, 12500,  15650,17800,20400,24750,28900,32400,32900,34400,36900,42300,42700},
+                                    {-3,    -2,   -1,     0,    7200, 13500,17100,22800,28300,31000,33100,35900,41500,42400},
+                                    {-2,    -1,   0,      7772, 14500,16700,19600,24400,29200,31400,33200,36250,41500,41600}};
+*/
+// Coeff Log(Thtl) to Ng(rpm)
+// update 20180129
+static const double P_LT_NG[6][2] = { {-22622, 12442}, {-19361, 11516}, {-18505, 11341},
+                                      {-22488, 12207}, {-22787, 12173}, {-26358, 13011}};
 // Coeff NG(rpm) to NT(rpm)
-static const double P_NG_NT[6][2]= { {-8053, 0.9475},  {-5671, 0.973}, {-5142, 0.919},
-                                      {-5882, 0.950},   {-6435, 0.9771},{-8641, 0.9805}};
+// update 20180129
+static const double P_NG_NT[6][2]= {  {-5303, 0.9039},  {-5175, 0.9189},  {-4765, 0.9183},
+                                      {-5831, 0.9441},  {-6196, 0.9441},  {-8133, 0.9905}};
+// Coeff NT(rpm) to NG(rpm)
+// update 20180129
+static const double P_NT_NG[6][2]= {  { 5888, 1.0154},  { 5640, 1.0877},  { 5199, 1.0885},
+                                      { 6188, 1.0586},  { 6573, 1.0588},  { 8230, 1.0087}};
 // TODO dCpdLambda, dimensionless.  Cp is power coefficient and Lambda is speed tip ratio
 static const double DCPDL[6]     = { -0.418,   -0.89,  -1.1,   -0.83,  -1.3,   -1.4};
 // TODO Turbine tip speed ratio to air velocity, dimensionless
@@ -105,7 +130,7 @@ public:
   double At(void) { return(at_);};
   double tldF(void) { return(tldF_);};
   double tlgF(void) { return(tlgF_);};
-  double LG(void) { return(Ki_);};
+  double KI(void) { return(Ki_);};
   int myKit(const int kit) { myKit_ = kit;};
   int myF2v(const int f2v) { myF2v_ = f2v;};
   int myKit(void) { return(myKit_);};
@@ -127,8 +152,10 @@ private:
   LeadLagExp *modelFilterG_; // Exponential lag model gas gen
   LeadLagExp *modelFilterT_; // Exponential lag model turbine
   LeadLagExp *modelFilterV_; // Exponential lag model F2V sensor
-  TableInterp1Dclip *LG_T_;  // Gain schedule lead time constant, s
+  TableInterp1Dclip *KI_T_;  // Gain schedule lead time constant, s
   TableInterp1Dclip *TLD_T_; // Gain schedule loop gain, r/s
+  //TableInterp1Dclip *T_NG_T_; // Throttle 2 Ng, rpm
+  //TableInterp1Dclip *NG_T_T_; // Ng 2 Throttle, deg
   double DENS_SI_;           // Air density, kg/m^3
   double ad_;                // Derivative tlead adder
   double ag_;                // Integral lookup adder
